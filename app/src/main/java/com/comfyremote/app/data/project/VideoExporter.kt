@@ -28,8 +28,8 @@ import kotlinx.coroutines.suspendCancellableCoroutine
 
 /**
  * Renders an [ExportPlanBuilder.Plan] to MP4 with media3 Transformer:
- * one EditedMediaItemSequence for the video track, per-clip clipping, speed
- * and gain. The output is written to a `.tmp` file and only validated + left
+ * parallel video and audio EditedMediaItemSequences, with per-clip clipping,
+ * speed and gain. Original audio from video clips is mixed with the audio track. The output is written to a `.tmp` file and only validated + left
  * in place after the transform completes, so an interrupted export can never
  * leave a broken "finished" file behind (source media stays read-only).
  */
@@ -57,30 +57,37 @@ class VideoExporter(private val context: Context) {
         failed.set(false)
         cancelRequested = false
 
-        val sequence = Composition.Builder(EditedMediaItemSequence(
-            plan.items.map { item ->
-                val mediaItem = MediaItem.Builder()
-                    .setUri(android.net.Uri.fromFile(File(item.sourcePath)))
-                    .setClippingConfiguration(
-                        MediaItem.ClippingConfiguration.Builder()
-                            .setStartPositionMs(item.inMs)
-                            .setEndPositionMs(item.outMs)
-                            .build(),
-                    )
-                    .build()
-                val audioEffects = if (item.muted || item.volume != 1f) {
-                    listOf<AudioProcessor>(GainAudioProcessor(if (item.muted) 0f else item.volume))
-                } else {
-                    emptyList()
-                }
-                EditedMediaItem.Builder(mediaItem)
-                    // Sequence pacing needs the post-speed duration of the item.
-                    .setDurationUs(item.durationMs * 1000L)
-                    // Effects takes audio processors first, then video effects.
-                    .setEffects(Effects(audioEffects, listOf(SpeedChangeEffect(item.speed))))
-                    .build()
-            }),
-        ).build()
+        fun edited(item: ExportPlanBuilder.Item): EditedMediaItem {
+            val mediaItem = MediaItem.Builder()
+                .setUri(android.net.Uri.fromFile(File(item.sourcePath)))
+                .setClippingConfiguration(
+                    MediaItem.ClippingConfiguration.Builder()
+                        .setStartPositionMs(item.inMs)
+                        .setEndPositionMs(item.outMs)
+                        .build(),
+                )
+                .build()
+            val audioEffects = if (item.muted || item.volume != 1f) {
+                listOf<AudioProcessor>(GainAudioProcessor(if (item.muted) 0f else item.volume))
+            } else {
+                emptyList()
+            }
+            return EditedMediaItem.Builder(mediaItem)
+                .setDurationUs(item.durationMs * 1000L)
+                .setEffects(Effects(audioEffects, listOf(SpeedChangeEffect(item.speed))))
+                .build()
+        }
+
+        val videoSequence = EditedMediaItemSequence(plan.items.map(::edited))
+        // In Media3 Composition, separate sequences start at t=0 and audio is
+        // mixed, not appended. The export plan already trims audio to the video
+        // duration, and sequence-local clipping/volume apply to both tracks.
+        val composition = if (plan.audioItems.isEmpty()) {
+            Composition.Builder(videoSequence).build()
+        } else {
+            val audioSequence = EditedMediaItemSequence(plan.audioItems.map(::edited))
+            Composition.Builder(videoSequence, audioSequence).build()
+        }
 
         coroutineScope {
             val completion = async {
@@ -99,7 +106,7 @@ class VideoExporter(private val context: Context) {
                         })
                         .build()
                     transformer = exporter
-                    exporter.start(sequence, target.absolutePath)
+                    exporter.start(composition, target.absolutePath)
                     continuation.invokeOnCancellation { exporter.cancel() }
                 }
             }
