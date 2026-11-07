@@ -19,12 +19,14 @@ class ExportPlanTest {
     private val existing = setOf("/m/a.mp4", "/m/c.mp4", "/m/d.mp4", "/m/bgm.mp3")
 
     @Test
-    fun buildKeepsOnlyExistingVideoClipsInOrder() {
+    fun buildRetainsVideoOrderAndAddsParallelAudio() {
         val plan = ExportPlanBuilder.build(timeline, existing)
 
         assertEquals(listOf("tlc:a", "tlc:c", "tlc:d"), plan.items.map { it.clipId })
         assertEquals(listOf("丢失"), plan.skippedMissing)
-        assertTrue(plan.audioTrackIsIgnored())
+        assertEquals(listOf("tlc:m"), plan.audioItems.map { it.clipId })
+        // Audio begins at t=0 alongside the video and is capped at cut length.
+        assertEquals(6000L, plan.audioItems.single().outMs)
     }
 
     @Test
@@ -73,6 +75,55 @@ class ExportPlanTest {
     }
 
     @Test
+    fun missingAudioFailsClosedInsteadOfSilentlyExportingAVideoOnlyMovie() {
+        val plan = ExportPlanBuilder.build(timeline, existing - "/m/bgm.mp3")
+        assertTrue(plan.skippedMissing.contains("bgm.mp3"))
+        assertTrue(plan.audioItems.isEmpty())
+    }
+
+    @Test
+    fun audioTrimPastKnownDurationIsReported() {
+        val t = Timeline(
+            videoTrack = listOf(TimelineClip(sourcePath = "/m/a.mp4", sourceOutMs = 1000)),
+            audioTrack = listOf(TimelineClip(sourcePath = "/m/bgm.mp3", sourceOutMs = 3000, sourceLabel = "broken")),
+        )
+        val p = ExportPlanBuilder.build(
+            t, existingPaths = existing,
+            sourceDurationsMs = mapOf("/m/a.mp4" to 1000, "/m/bgm.mp3" to 2000),
+        )
+        assertEquals(listOf("broken"), p.invalidTrims)
+        assertTrue(p.audioItems.isEmpty())
+    }
+
+    @Test
+    fun audioItemsHaveTheirOwnSpeedVolumeMuteAndSequentialOrder() {
+        val t = Timeline(
+            videoTrack = listOf(TimelineClip(sourcePath = "/m/a.mp4", sourceOutMs = 5000)),
+            audioTrack = listOf(
+                TimelineClip(id = "sfx", sourcePath = "/m/bgm.mp3", sourceInMs = 1000, sourceOutMs = 3000, speed = 2f, volume = 0.4f),
+                TimelineClip(id = "voice", sourcePath = "/m/bgm.mp3", sourceOutMs = 5000, muted = true),
+            ),
+        )
+        val p = ExportPlanBuilder.build(t, existing)
+        assertEquals(listOf("sfx", "voice"), p.audioItems.map { it.clipId })
+        assertEquals(1000L, p.audioItems[0].durationMs)
+        assertEquals(0.4f, p.audioItems[0].volume)
+        assertEquals(0f, p.audioItems[1].volume)
+        assertTrue(p.audioItems[1].muted)
+        assertEquals(4000L, p.audioItems[1].durationMs)
+        assertEquals(5000L, p.expectedDurationMs)
+    }
+
+    @Test
+    fun aProjectWithoutAudioStillHasNoOverlay() {
+        val p = ExportPlanBuilder.build(
+            Timeline(videoTrack = listOf(TimelineClip(sourcePath = "/m/a.mp4", sourceOutMs = 1000))),
+            existing,
+        )
+        assertTrue(p.audioItems.isEmpty())
+    }
+
+    @Test
     fun emptyTimelineProducesAnEmptyPlan() {
         val plan = ExportPlanBuilder.build(Timeline(), existing)
 
@@ -81,4 +132,3 @@ class ExportPlanTest {
     }
 }
 
-private fun ExportPlanBuilder.Plan.audioTrackIsIgnored(): Boolean = items.none { it.sourcePath == "/m/bgm.mp3" }
