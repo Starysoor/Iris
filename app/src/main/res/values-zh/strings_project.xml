@@ -77,7 +77,7 @@
     <string name="proj_timeline_duration">总长 %1$s</string>
     <string name="proj_timeline_video_clips">视频 %1$d</string>
     <string name="proj_timeline_audio_clips">音频 %1$d</string>
-    <string name="proj_timeline_audio_export_note">音频轨片段会随项目保存，但暂不参与 MP4 导出（当前 media3 版本的引擎限制）。</string>
+    <string name="proj_timeline_audio_export_note">导出时会将独立音频轨与视频原声混音。当前仅支持一条顺序音频轨；超出视频时长的音频将被裁剪。</string>
     <string name="proj_timeline_add_video">添加视频片段</string>
     <string name="proj_timeline_add_audio">添加音频片段</string>
     <string name="proj_timeline_add">添加</string>
@@ -97,7 +97,7 @@
     <string name="proj_timeline_mute_hint">导出时将此片段自带音频静音</string>
     <string name="proj_timeline_muted">已静音</string>
     <string name="proj_timeline_preview">预览</string>
-    <string name="proj_timeline_preview_note">预览按顺序播放视频轨并应用裁剪；速度、音量与静音在导出时完整生效。</string>
+    <string name="proj_timeline_preview_note">预览仅播放视频轨并应用裁剪；独立音轨、速度、音量和静音效果在导出的 MP4 中生效。</string>
     <string name="proj_timeline_unreadable">无法读取该媒体文件</string>
     <string name="proj_export_start">导出 MP4</string>
     <string name="proj_export_title">导出成片</string>
