@@ -1,5 +1,14 @@
 # Changelog
 
+## 2.4.0 — Release Candidate (not yet released)
+
+### Studio project workbench
+- Upgrade Storyboard to Iris Studio: project overview, reference/asset libraries, character and scene profiles, Shot/Take version selection, timeline and AI director suggestions.
+- Add video timeline editing and MP4 export, user-controlled cloud budget gate, frame continuity checks, migration safeguards and recovery tests.
+- Merge PR #90's project data ownership, budget, Take race, memory, large-media and export preflight fixes.
+- Target versionCode 29. The final Release is gated by #80 and the independent audio-mixing PR #91, latest-head CI and physical Android device acceptance.
+- Known boundaries: export stops when the ViewModel session closes; timeline preview is video-first; real standalone audio-mix E2E and 120-second device QA remain mandatory before publishing.
+
 ## Unreleased — Iris Studio issue hardening (PR #90)
 
 - Protect Take result files still owned by History and by the legacy storyboard rollback index; block active-task Take deletion and stale task-result overwrites; resolve out-of-order tail-frame selection.
