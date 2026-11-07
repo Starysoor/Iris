@@ -109,8 +109,8 @@ class StudioProjectE2ETest {
 
         val plan = ExportPlanBuilder.build(
             restored.timeline!!,
-            existingPaths = sourcePaths,
-            sourceDurationsMs = sourcePaths.associateWith { 10_000L },
+            existingPaths = sourcePaths + "/mock/score.wav",
+            sourceDurationsMs = sourcePaths.associateWith { 10_000L } + ("/mock/score.wav" to 120_000L),
         )
         assertFalse(plan.isEmpty)
         assertEquals(12, plan.items.size)
