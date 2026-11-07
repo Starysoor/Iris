@@ -128,7 +128,7 @@ class VideoExporter(private val context: Context) {
         if (!target.isFile || target.length() == 0L) {
             throw IllegalStateException("Export produced no output file")
         }
-        val durationMs = verifyOutput(target, plan.expectedDurationMs)
+        val durationMs = verifyOutput(target, plan.expectedDurationMs, plan.audioItems.isNotEmpty())
         return Result.Success(target, durationMs)
     }
 
@@ -142,19 +142,29 @@ class VideoExporter(private val context: Context) {
      * Full-file verification: the result must be decodable and its duration
      * must land within [DURATION_TOLERANCE] of the plan expectation.
      */
-    private fun verifyOutput(file: File, expectedMs: Long): Long {
-        val measured = runCatching {
+    private fun verifyOutput(file: File, expectedMs: Long, requireAudio: Boolean): Long {
+        val metadata = runCatching {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(file.absolutePath)
-                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
+                    .equals("yes", ignoreCase = true)
+                val hasVideo = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)
+                    .equals("yes", ignoreCase = true)
+                Triple(duration, hasAudio, hasVideo)
             } finally {
                 retriever.release()
             }
         }.getOrNull()
-        if (measured == null || measured <= 0L) {
+        val measured = metadata?.first
+        if (measured == null || measured <= 0L || metadata.third != true) {
             file.delete()
             throw IllegalStateException("Exported file is not playable")
+        }
+        if (requireAudio && metadata.second != true) {
+            file.delete()
+            throw IllegalStateException("Exported file has no audio track despite an audio overlay")
         }
         if (expectedMs > 0) {
             val low = expectedMs * (1 - DURATION_TOLERANCE)
