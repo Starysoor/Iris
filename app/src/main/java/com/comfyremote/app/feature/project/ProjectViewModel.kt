@@ -597,7 +597,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
 
     /**
-     * Exports the video track to MP4 and registers the result in History.
+     * Exports the video track and its parallel audio overlay to MP4, then
+     * registers the verified result in History.
      * Export runs in the ViewModel scope: leaving the app kills it (the tmp
      * file never becomes a finished result); the user retries manually.
      */
@@ -611,9 +612,11 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
         exportJob = viewModelScope.launch {
             val available = withContext(Dispatchers.IO) {
-                timeline.videoTrack.map { it.sourcePath }.filter { File(it).isFile }.toSet()
+                (timeline.videoTrack + timeline.audioTrack)
+                    .map { it.sourcePath }.filter { File(it).isFile }.toSet()
             }
-            val missing = timeline.videoTrack.filter { it.sourcePath !in available }
+            val missing = (timeline.videoTrack + timeline.audioTrack)
+                .filter { it.sourcePath !in available }
             if (missing.isNotEmpty()) {
                 _exportState.value = ExportState.Failed(AppStrings.get(
                     R.string.proj_export_skipped,
