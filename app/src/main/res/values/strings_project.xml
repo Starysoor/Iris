@@ -77,7 +77,7 @@
     <string name="proj_timeline_duration">Total %1$s</string>
     <string name="proj_timeline_video_clips">Video %1$d</string>
     <string name="proj_timeline_audio_clips">Audio %1$d</string>
-    <string name="proj_timeline_audio_export_note">Audio-track clips are mixed with the video track's original audio when exporting. This editor has one sequential overlay track; audio beyond the video cut is trimmed.</string>
+    <string name="proj_timeline_audio_export_note">Audio-track clips are mixed with the original video audio when exporting. This editor has one sequential overlay track; audio beyond the video cut is trimmed.</string>
     <string name="proj_timeline_add_video">Add video clip</string>
     <string name="proj_timeline_add_audio">Add audio clip</string>
     <string name="proj_timeline_add">Add</string>
