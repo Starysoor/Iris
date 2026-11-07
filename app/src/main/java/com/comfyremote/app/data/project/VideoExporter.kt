@@ -158,11 +158,11 @@ class VideoExporter(private val context: Context) {
             }
         }.getOrNull()
         val measured = metadata?.first
-        if (measured == null || measured <= 0L || metadata.third != true) {
+        if (measured == null || measured <= 0L || metadata?.third != true) {
             file.delete()
             throw IllegalStateException("Exported file is not playable")
         }
-        if (requireAudio && metadata.second != true) {
+        if (requireAudio && metadata?.second != true) {
             file.delete()
             throw IllegalStateException("Exported file has no audio track despite an audio overlay")
         }
