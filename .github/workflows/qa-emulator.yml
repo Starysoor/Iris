@@ -13,7 +13,7 @@ jobs:
     # Regression matrix for the project workbench (#57 P0): oldest supported
     # API, current phone target, and a tablet form factor.
     runs-on: ubuntu-latest
-    timeout-minutes: 30
+    timeout-minutes: 50
     strategy:
       fail-fast: false
       matrix:
@@ -42,8 +42,8 @@ jobs:
         with:
           gradle-version: '8.7'
 
-      - name: Build unsigned-for-release but debug-signed APK
-        run: gradle :app:assembleDebug --no-daemon
+      - name: Build debug APK and Media3 export instrumentation APK
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
 
       - name: Enable KVM
         run: |
