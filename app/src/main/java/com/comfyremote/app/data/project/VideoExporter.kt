@@ -74,7 +74,10 @@ class VideoExporter(private val context: Context) {
             }
             return EditedMediaItem.Builder(mediaItem)
                 .setDurationUs(item.durationMs * 1000L)
-                .setEffects(Effects(audioEffects, listOf(SpeedChangeEffect(item.speed))))
+                .setEffects(Effects(
+                    audioEffects,
+                    if (item.speed == 1f) emptyList() else listOf(SpeedChangeEffect(item.speed)),
+                ))
                 .build()
         }
 
