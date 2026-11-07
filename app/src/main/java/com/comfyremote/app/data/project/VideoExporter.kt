@@ -96,6 +96,9 @@ class VideoExporter(private val context: Context) {
             val completion = async {
                 suspendCancellableCoroutine { continuation ->
                     val exporter = Transformer.Builder(context)
+                        // Some API 29 software codecs need more than the default 10 s
+                        // to produce the first mixed sample. Keep a finite watchdog.
+                        .setMaxDelayBetweenMuxerSamplesMs(30_000L)
                         .addListener(object : Transformer.Listener {
                             override fun onCompleted(composition: Composition, result: ExportResult) {
                                 completed.set(true)
