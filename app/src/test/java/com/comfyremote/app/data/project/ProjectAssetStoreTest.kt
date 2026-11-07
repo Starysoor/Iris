@@ -48,6 +48,17 @@ class ProjectAssetStoreTest {
     }
 
     @Test
+    fun projectVideoImportStreamsPastTheOld32MiBCap() = runBlocking {
+        val store = store()
+        // A sparse source creates the file cheaply; the actual bounded copy still
+        // has to stream all 33 MiB into project-owned storage without heap buffering.
+        val source = temp.newFile("long-scene.mp4")
+        java.io.RandomAccessFile(source, "rw").use { it.setLength(33L * 1024 * 1024) }
+        val asset = store.importFile(source.absolutePath, ReferenceRole.SCENE_REFERENCE)
+        assertEquals(source.length(), File(asset.path).length())
+    }
+
+    @Test
     fun audioFilesKeepTheirContainerExtension() = runBlocking {
         val store = store()
         val source = temp.newFile("voice.m4a").apply { writeBytes(ByteArray(128)) }
@@ -59,11 +70,13 @@ class ProjectAssetStoreTest {
     }
 
     @Test
-    fun oversizedMediaIsRejectedBeforeAnyCopy() {
+    fun oversizedVideoIsRejectedBeforeAnyCopy() {
         val store = store()
-        // Inflate the length without writing 32 MiB of actual data.
+        // Sparse large file: exceeds the video-specific 1 GiB cap without allocating memory.
         val oversized = temp.newFile("huge.mp4")
-        java.io.RandomAccessFile(oversized, "rw").use { raf -> raf.setLength(32L * 1024 * 1024 + 1) }
+        java.io.RandomAccessFile(oversized, "rw").use { raf ->
+            raf.setLength(ProjectAssetStore.MAX_VIDEO_BYTES + 1)
+        }
 
         assertThrows(IllegalArgumentException::class.java) {
             runBlocking {
@@ -71,6 +84,15 @@ class ProjectAssetStoreTest {
             }
         }
         assertEquals(0, store.listImportedFiles().size)
+    }
+
+
+    @Test
+    fun mediaLimitsArePerKindAndVideosCanExceedOldImageLimit() {
+        assertEquals(32L * 1024 * 1024, ProjectAssetStore.limitFor(AssetKind.IMAGE))
+        assertTrue(ProjectAssetStore.limitFor(AssetKind.VIDEO) > 32L * 1024 * 1024)
+        assertTrue(ProjectAssetStore.limitFor(AssetKind.AUDIO) > 32L * 1024 * 1024)
+        assertTrue(ProjectAssetStore.limitFor(AssetKind.SUBTITLE) < 32L * 1024 * 1024)
     }
 
     @Test

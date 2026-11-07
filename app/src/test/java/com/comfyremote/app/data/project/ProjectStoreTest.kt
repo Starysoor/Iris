@@ -71,6 +71,7 @@ class ProjectStoreTest {
         assertEquals("task-1", take.taskId)
         assertEquals("running", take.status)
         assertEquals("replicate:owner/model", take.workflowPath)
+        assertEquals("scene one", take.prompt)
         assertEquals("42", take.seed)
         assertEquals(0.2, take.costEstimate!!, 1e-9)
         assertEquals(take.id, running.selectedTakeId)
@@ -182,6 +183,7 @@ class ProjectStoreTest {
         val freshOrphan = File(mediaDir, "fresh.png").apply { writeText("fresh") }
         val project = store.create("Studio", "wf")!!
         val shot = store.addShot(project.id, "scene")!!
+        store.attachTask(project.id, shot.id, "task-media")
         store.markDone(project.id, shot.id, referenced.absolutePath, null)
 
         assertTrue(store.delete(project.id))
@@ -190,6 +192,29 @@ class ProjectStoreTest {
         assertFalse(orphan.exists())
         // Recent files stay inside the grace window even when unreferenced.
         assertTrue(freshOrphan.exists())
+    }
+
+    @Test
+    fun legacyStoryboardRollbackAnchorKeepsReferencedMediaAfterNewProjectDeletion() {
+        val mediaDir = File(temp.root, "storyboards").apply { mkdirs() }
+        val preserved = File(mediaDir, "old-reference.png").apply {
+            writeText("rollback media")
+            setLastModified(System.currentTimeMillis() - 60 * 60_000L)
+        }
+        val legacyProject = com.comfyremote.app.data.storyboard.StoryboardProject(
+            id = "legacy-project", title = "Legacy", workflowId = "workflow",
+            assets = listOf(ProjectAsset(
+                id = "legacy-asset", path = preserved.absolutePath,
+                role = ReferenceRole.CHARACTER_REFERENCE,
+            )),
+        )
+        File(temp.root, "storyboards.json").writeText(
+            com.comfyremote.app.data.storyboard.StoryboardCodec.encode(listOf(legacyProject)),
+        )
+        val store = store()
+        val newProject = store.create("New", "wf")!!
+        assertTrue(store.delete(newProject.id))
+        assertTrue(preserved.exists())
     }
 
     @Test
@@ -290,7 +315,7 @@ class ProjectStoreTest {
     }
 
     @Test
-    fun projectSettingsUpdateAndResetShotWorkflowOverrides() {
+    fun projectSettingsPreserveExplicitShotWorkflowOverrides() {
         val store = store()
         val project = store.create("Studio", "wf")!!
         val shot = store.addShot(project.id, "scene")!!
@@ -319,9 +344,59 @@ class ProjectStoreTest {
         assertEquals(120, updated.targetDurationSeconds)
         assertEquals(9.9, updated.budget!!, 1e-9)
         val overridden = updated.shots.single()
-        assertNull(overridden.workflowPath)
-        assertNull(overridden.providerId)
-        assertTrue(overridden.values.isEmpty())
+        assertEquals("siliconflow:old/model", overridden.workflowPath)
+        assertEquals("siliconflow", overridden.providerId)
+        assertEquals(mapOf("k" to "v"), overridden.values)
+    }
+
+
+    @Test
+    fun projectSettingsPreserveExistingBudgetUnlessExplicitlyEdited() {
+        val store = store()
+        val project = store.create("Studio", "wf")!!
+        assertTrue(store.setBudget(project.id, 20.0))
+        assertTrue(store.updateSettings(
+            project.id, "Renamed", "", "autodl:other", "autodl", "16:9", emptyMap(),
+        ))
+        assertEquals(20.0, store.project(project.id)!!.budget!!, 1e-9)
+        assertTrue(store.updateSettings(
+            project.id, "Renamed", "", "autodl:other", "autodl", "16:9", emptyMap(),
+            budget = null, updateBudget = true,
+        ))
+        assertNull(store.project(project.id)!!.budget)
+        assertTrue(store.setBudget(project.id, Double.POSITIVE_INFINITY))
+        assertNull(store.project(project.id)!!.budget)
+    }
+
+    @Test
+    fun changingProjectDefaultRetainsOverridesButClearsInheritedValues() {
+        val store = store()
+        val project = store.create("Studio", "wf")!!
+        val inherited = store.addShot(project.id, "inherited")!!
+        val overridden = store.addShot(project.id, "override")!!
+        store.updateShot(project.id, inherited.id) { it.copy(values = mapOf("legacy" to "1")) }
+        store.updateShot(project.id, overridden.id) {
+            it.copy(workflowPath = "replicate:fixed", values = mapOf("prompt" to "saved"))
+        }
+        assertTrue(store.updateSettings(project.id, "Studio", "", "autodl:new", "autodl", "", emptyMap()))
+        val shots = store.project(project.id)!!.shots
+        assertTrue(shots.first { it.id == inherited.id }.values.isEmpty())
+        assertEquals("replicate:fixed", shots.first { it.id == overridden.id }.workflowPath)
+        assertEquals(mapOf("prompt" to "saved"), shots.first { it.id == overridden.id }.values)
+    }
+
+    @Test
+    fun storeRejectsDeletingRunningShotsOrProjectsWithoutFalseSuccess() {
+        val store = store()
+        val project = store.create("Studio", "wf")!!
+        val shot = store.addShot(project.id, "paying shot")!!
+        assertTrue(store.attachTask(project.id, shot.id, "active-task"))
+        assertFalse(store.deleteShot(project.id, shot.id))
+        assertFalse(store.delete(project.id))
+        assertEquals("active-task", store.project(project.id)!!.shots.single().taskId)
+        assertTrue(store.markTaskCancelled(project.id, shot.id, "active-task"))
+        assertTrue(store.deleteShot(project.id, shot.id))
+        assertTrue(store.delete(project.id))
     }
 
     @Test
@@ -330,6 +405,7 @@ class ProjectStoreTest {
         val project = store.create("Studio", "wf")!!
         val first = store.addShot(project.id, "first")!!
         val second = store.addShot(project.id, "second")!!
+        store.attachTask(project.id, first.id, "task-chain")
         store.markDone(project.id, first.id, "/tmp/r.mp4", "/tmp/last.png")
 
         val relayed = store.project(project.id)!!.shots[1]

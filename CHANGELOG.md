@@ -1,5 +1,17 @@
 # Changelog
 
+## Unreleased — Iris Studio issue hardening (PR #90)
+
+- Protect Take result files still owned by History and by the legacy storyboard rollback index; block active-task Take deletion and stale task-result overwrites; resolve out-of-order tail-frame selection.
+- Preserve project budgets on unrelated settings edits and expose an editable project budget. Recheck limits before project retries.
+- Keep explicit per-shot Provider/model overrides when changing project defaults, and allow empty/offline projects before a model is configured.
+- Bound video continuity thumbnails to small bitmaps; fix parallel video/audio duration logic and use video duration for export-target checks.
+- Refuse incomplete MP4 exports when clips are missing, unplayable or trimmed past source duration, and never copy partially into a final result filename.
+- Stream large project media by kind (image 32 MiB, video 1 GiB, audio 512 MiB, subtitles 8 MiB) with progress, cancel and temporary-file cleanup.
+- Add a paid-API-free 12-shot / 16-Take mixed-provider project roundtrip test, release QA instructions, and regression cases for all fixes.
+
+**Not yet released:** Source fixes require latest-head CI, emulator matrix and physical-device/codec checks before version bump or signed v2.4.0 APK.
+
 ## 2.3.2 — 2026-11-07
 
 ### Added

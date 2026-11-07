@@ -56,6 +56,22 @@ class ExportPlanTest {
         assertEquals(1L, item.durationMs)
     }
 
+
+    @Test
+    fun invalidTrimIsReportedWhenActualMediaDurationIsKnown() {
+        val source = "/m/a.mp4"
+        val plan = ExportPlanBuilder.build(
+            Timeline(videoTrack = listOf(
+                TimelineClip(id = "valid", sourcePath = source, sourceInMs = 0, sourceOutMs = 1000),
+                TimelineClip(id = "over", sourcePath = source, sourceInMs = 500, sourceOutMs = 2000, sourceLabel = "too-long"),
+            )),
+            existingPaths = setOf(source),
+            sourceDurationsMs = mapOf(source to 1500L),
+        )
+        assertEquals(listOf("valid"), plan.items.map { it.clipId })
+        assertEquals(listOf("too-long"), plan.invalidTrims)
+    }
+
     @Test
     fun emptyTimelineProducesAnEmptyPlan() {
         val plan = ExportPlanBuilder.build(Timeline(), existing)

@@ -15,6 +15,8 @@ import java.io.IOException
 import java.util.Locale
 import java.util.UUID
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 
 /**
@@ -23,7 +25,7 @@ import kotlinx.coroutines.withContext
  *
  * Images keep the cloud-friendly normalization (bounded read + JPEG re-encode
  * at 1536px); video/audio/subtitle files are copied verbatim after the same
- * 32 MiB bound so untrusted sources can never exhaust memory.
+ * per-kind streaming limits so untrusted sources cannot exhaust memory.
  */
 class ProjectAssetStore private constructor(
     private val context: Context?,
@@ -42,24 +44,34 @@ class ProjectAssetStore private constructor(
         role: ReferenceRole,
         label: String = "",
         tags: List<String> = emptyList(),
+        onProgress: (copiedBytes: Long, totalBytes: Long?) -> Unit = { _, _ -> },
     ): ProjectAsset = withContext(Dispatchers.IO) {
         val resolver = context?.contentResolver
             ?: throw IllegalStateException("ProjectAssetStore requires a Context for content imports")
         val mime = resolver.getType(uri)
         val name = displayName(resolver, uri)
+        val expectedSize = displaySize(resolver, uri)
         when (val kind = resolveAssetKind(mime, name)) {
             AssetKind.IMAGE -> {
                 val bytes = resolver.openInputStream(uri)?.use {
                     BoundedMediaInput.read(it, BoundedMediaInput.MAX_IMAGE_BYTES)
                 } ?: throw IllegalStateException("Cannot read image")
+                onProgress(bytes.size.toLong(), expectedSize)
                 saveImage(bytes, mime, role, label, tags)
             }
             else -> {
                 val ext = name?.extension()
                     ?: mime?.let(::extForMime)
                     ?: "bin"
+                val limit = limitFor(kind)
+                if (expectedSize != null && expectedSize > limit) {
+                    throw IllegalArgumentException("Media source exceeds ${limit / (1024 * 1024)} MiB")
+                }
+                ensureFreeSpace(expectedSize)
                 resolver.openInputStream(uri)?.use { input ->
-                    copyBounded(input, ext, role, label, tags, kind)
+                    copyBounded(input, ext, role, label, tags, kind) { copied ->
+                        onProgress(copied, expectedSize)
+                    }
                 } ?: throw IllegalStateException("Cannot read media")
             }
         }
@@ -73,10 +85,14 @@ class ProjectAssetStore private constructor(
     ): ProjectAsset = withContext(Dispatchers.IO) {
         val source = File(path)
         if (!source.isFile) throw IllegalStateException("Media file does not exist")
-        if (source.length() > BoundedMediaInput.MAX_IMAGE_BYTES) {
-            throw IllegalArgumentException("Media source exceeds 32 MiB")
+        val kind = resolveAssetKind(null, source.name)
+        val limit = limitFor(kind)
+        if (source.length() > limit) {
+            throw IllegalArgumentException("Media source exceeds ${limit / (1024 * 1024)} MiB")
         }
-        when (val kind = resolveAssetKind(null, source.name)) {
+        ensureFreeSpace(source.length())
+        // Stream long videos; never load their entire contents into the heap.
+        when (kind) {
             AssetKind.IMAGE -> saveImage(source.readBytes(), null, role, label, tags)
             else -> source.inputStream().use {
                 copyBounded(it, source.extension.ifBlank { "bin" }, role, label, tags, kind)
@@ -107,12 +123,21 @@ class ProjectAssetStore private constructor(
         label: String,
         tags: List<String>,
         kind: AssetKind,
+        onProgress: (Long) -> Unit = {},
     ): ProjectAsset {
         val file = newAssetFile(ext)
         val tmp = File(file.parentFile, file.name + ".tmp")
         try {
             withContext(Dispatchers.IO) {
-                FileOutputStream(tmp).use { out -> BoundedMediaInput.copy(input, out, BoundedMediaInput.MAX_IMAGE_BYTES) }
+                val context = currentCoroutineContext()
+                FileOutputStream(tmp).use { out ->
+                    BoundedMediaInput.copy(input, out, limitFor(kind)) { copied ->
+                        context.ensureActive()
+                        onProgress(copied)
+                    }
+                    out.fd.sync()
+                }
+                context.ensureActive()
                 if (!tmp.renameTo(file) || !file.isFile) {
                     throw IOException("Cannot save media asset")
                 }
@@ -122,6 +147,16 @@ class ProjectAssetStore private constructor(
             throw error
         }
         return asset(file, role, label, tags, kind)
+    }
+
+    /** Preflight only when the provider supplies a size; streaming also handles unknown sizes. */
+    private fun ensureFreeSpace(expectedBytes: Long?) {
+        if (expectedBytes == null || expectedBytes <= 0L) return
+        if (!dir.isDirectory && !dir.mkdirs()) throw IOException("Cannot create media directory")
+        val available = dir.usableSpace
+        if (available > 0 && expectedBytes > (available - 8L * 1024 * 1024).coerceAtLeast(0L)) {
+            throw IOException("Not enough free storage for media import")
+        }
     }
 
     private fun newAssetFile(ext: String): File {
@@ -144,6 +179,12 @@ class ProjectAssetStore private constructor(
         tags = tags,
     )
 
+    private fun displaySize(resolver: ContentResolver, uri: Uri): Long? = runCatching {
+        resolver.query(uri, arrayOf(OpenableColumns.SIZE), null, null, null)?.use { cursor ->
+            if (cursor.moveToFirst() && !cursor.isNull(0)) cursor.getLong(0).takeIf { it >= 0 } else null
+        }
+    }.getOrNull()
+
     private fun displayName(resolver: ContentResolver, uri: Uri): String? = runCatching {
         resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use { cursor ->
             if (cursor.moveToFirst()) cursor.getString(0) else null
@@ -153,6 +194,17 @@ class ProjectAssetStore private constructor(
     private fun String.extension(): String = substringAfterLast('.', "").takeIf { it.isNotBlank() }.orEmpty()
 
     companion object {
+        internal const val MAX_VIDEO_BYTES = 1024L * 1024 * 1024
+        internal const val MAX_PROJECT_AUDIO_BYTES = 512L * 1024 * 1024
+        internal const val MAX_SUBTITLE_BYTES = 8L * 1024 * 1024
+
+        internal fun limitFor(kind: AssetKind): Long = when (kind) {
+            AssetKind.IMAGE -> BoundedMediaInput.MAX_IMAGE_BYTES
+            AssetKind.VIDEO -> MAX_VIDEO_BYTES
+            AssetKind.AUDIO -> MAX_PROJECT_AUDIO_BYTES
+            AssetKind.SUBTITLE -> MAX_SUBTITLE_BYTES
+        }
+
         /**
          * Explicit video/audio/subtitle mimes win over extensions; otherwise the
          * file name decides (unknown extensions stay images, matching AssetKind).

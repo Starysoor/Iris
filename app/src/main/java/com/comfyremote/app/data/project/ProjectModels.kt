@@ -134,8 +134,10 @@ data class Timeline(
     fun track(kind: TrackKind): List<TimelineClip> =
         if (kind == TrackKind.VIDEO) videoTrack else audioTrack
 
-    val totalDurationMs: Long
-        get() = (videoTrack.sumOf { it.durationMs } + audioTrack.sumOf { it.durationMs })
+    /** The video and audio tracks run in parallel, not end-to-end. */
+    val videoDurationMs: Long get() = videoTrack.sumOf { it.durationMs }
+    val audioDurationMs: Long get() = audioTrack.sumOf { it.durationMs }
+    val totalDurationMs: Long get() = maxOf(videoDurationMs, audioDurationMs)
 }
 
 /**

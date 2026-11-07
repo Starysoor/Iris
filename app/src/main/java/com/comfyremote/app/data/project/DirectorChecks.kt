@@ -75,7 +75,7 @@ object DirectorChecks {
                 issues += Issue(
                     Severity.WARNING,
                     "shot_result_missing",
-                    "镜头 ${index + 1} 的结果文件已丢失，时间线导出会跳过它",
+                    "镜头 ${index + 1} 的结果文件已丢失，请修复后再导出",
                     shot.id,
                 )
             }
@@ -116,17 +116,18 @@ object DirectorChecks {
             }
         }
 
-        // Target duration drift against the timeline total (if both exist).
+        // The current exporter renders only the video track. Audio runs in parallel
+        // and is not included until the separate audio-mixing feature is delivered.
         val target = project.targetDurationSeconds
         val timeline = project.timeline
-        if (target != null && target > 0 && timeline != null && timeline.totalDurationMs > 0) {
+        if (target != null && target > 0 && timeline != null && timeline.videoDurationMs > 0) {
             val targetMs = target * 1000.0
-            val drift = (timeline.totalDurationMs - targetMs).let { if (it < 0) -it else it } / targetMs
+            val drift = (timeline.videoDurationMs - targetMs).let { if (it < 0) -it else it } / targetMs
             if (drift > DURATION_DRIFT) {
                 issues += Issue(
                     Severity.INFO,
                     "duration_drift",
-                    "时间线总长与目标时长偏差约 ${(drift * 100).toInt()}%，考虑增删片段或调整目标",
+                    "视频轨与目标时长偏差约 ${(drift * 100).toInt()}%，考虑增删片段或调整目标",
                 )
             }
         }

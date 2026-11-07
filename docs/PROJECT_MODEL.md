@@ -11,7 +11,7 @@ Iris v2.4 起，创作工作台的持久化中心从「分镜」（`storyboards.
 | 项目 | `VideoProject`（`data/project/ProjectModels.kt`） | 一个自包含的视频创作工作 |
 | 镜头 | `ProjectShot` | 项目内有序创作单元；live 字段（status/taskId/resultPath/lastFramePath）镜像当前主版本 Take |
 | 版本 | `ShotTake` | 一次生成尝试的完整快照（模型/参数/参考/结果/费用），每次提交自动记录；P1 支持设主版本/收藏/弃用/删除 |
-| 素材 | `ProjectAsset`（`data/reference/ReferenceModels.kt`） | 项目级可复用媒体；`kind`（IMAGE/VIDEO/AUDIO/SUBTITLE）与 `tags`；导入经 `ProjectAssetStore`（图片 JPEG 规范化，视频/音频原样拷贝，统一 32MiB 上限） |
+| 素材 | `ProjectAsset`（`data/reference/ReferenceModels.kt`） | 项目级可复用媒体；`kind`（IMAGE/VIDEO/AUDIO/SUBTITLE）与 `tags`；导入经 `ProjectAssetStore`（图片 JPEG 规范化，视频/音频原样拷贝，分类限制：图片 32 MiB、视频 1 GiB、音频 512 MiB、字幕 8 MiB；视频/音频流式复制，支持进度与取消） |
 | 一致性档案 | `AssetProfile` | 一个角色/场景的命名档案（名称+描述+有序素材列表）；应用到镜头 = 按档案内顺序展开为镜头多参考 |
 | 生成任务 | `GenerationTask.taskId` | 复用现有任务引擎 ID，通过 `shot.taskId` 与 `GenerationRequest.storyboardProjectId/storyboardShotId` 弱关联（纯字符串，无外键） |
 
@@ -21,7 +21,7 @@ Iris v2.4 起，创作工作台的持久化中心从「分镜」（`storyboards.
 
 - **时间线片段 ≠ 镜头 ≠ 生成任务 ≠ 文件**。未来一个 Take 的结果文件可被多个时间线片段引用；删除镜头绝不能误删仍被引用的媒体文件。
 - Take 是历史记录：重复生成同一镜头会产生多条 Take，`selectedTakeId` 指向产生当前 live 结果的那条；复制镜头会重置生成历史（不复制 Take）。
-- **Take 生命周期**：`running → done | failed | cancelled`；P1 增加 `discarded`（弃用，仅标记，不删文件）。切换主版本（`selectTake`）只允许 done 的 Take；删除 Take 若删的是主版本，镜头 live 字段清空回 draft，其结果文件在确认无其他引用后才会被删除。
+- **Take 生命周期**：`running → done | failed | cancelled`，已完成版本可标记 `discarded`。运行中镜头及 Take 不允许切换/删除；切换已完成主版本会解除过时的 `taskId`，旧任务状态不能覆盖用户的选择。删除 Take 只移除项目版本记录，**绝不能直接删除结果库所拥有的文件**；过期且无任何项目/旧分镜引用的 app-owned 项目媒体才进入受保护 GC。
 - **镜头参考语义**：`referenceAssetIds` 是**有序**列表，提交时按顺序映射到工作流的 IMAGE 字段（首字段通常是 first_frame）；ReferenceRole（START_FRAME/END_FRAME 等）作为语义徽章随列表头部/尾部标注，暂不参与提交映射。
 - **cameraNotes（动作/运镜）**：生成时按 `风格提示 + 镜头提示 + cameraNotes` 顺序拼接进 prompt，UI 中独立展示。
 - 素材文件为 app-owned（`filesDir/storyboards/assets`，与旧媒体根一致，存量文件不迁移不失效），索引只存路径/类型/标签与元数据；一致性档案按 id 引用素材，删除素材会同步从档案中摘除，删除档案不影响素材。
@@ -49,23 +49,23 @@ Iris v2.4 起，创作工作台的持久化中心从「分镜」（`storyboards.
 
 - 触发点：删除项目 / 删除镜头 / 删除素材（成功落盘后）。
 - 保护集合 `referencedMediaPaths()`：所有 shot 的 `resultPath`/`lastFramePath`/`referencePath`、全部 Take 的 `resultPath`、全部素材 `path`。
-- 删除规则：**先提交索引、再删文件**；仅清理「未被引用 **且** `lastModified` 早于 10 分钟宽限期」的文件（宽限防止清理仍在生成流程中的文件）。
+- 删除规则：**先提交索引、再删文件**；仅清理 app-owned `filesDir/storyboards/` 下「新项目索引和**冻结的旧分镜回滚索引**均未引用，且 `lastModified` 早于 10 分钟宽限期」的媒体；对任意外部绝对路径、结果库媒体不得直接执行删除。
 - 跨 Store 保护：`AppContainer` 将 legacy store 与 project store 的引用集**并集**注入 `HistoryStore` 的 protectedMedia 钩子，结果页 History 的媒体清理永不破坏任一侧仍在引用的文件。
 
 ## 时间线与成片导出（P2）
 
-- `Timeline`（视频轨 + 音频轨）/ `TimelineClip`（`tlc:` ID 前缀）：**按路径引用媒体**，同一文件可被多个片段引用；`referencedMediaPaths` 并入片段 sourcePath，删除镜头/Take/素材时仍被时间线引用的文件受保护。
+- `Timeline`（视频轨 + 音频轨）/ `TimelineClip`（`tlc:` ID 前缀）：**按路径引用媒体**，同一文件可被多个片段引用；`referencedMediaPaths` 并入片段 sourcePath，删除镜头/Take/素材时仍被时间线引用的文件受保护。两个逻辑轨道并行：`totalDurationMs = max(videoDurationMs, audioDurationMs)`，不能把两条轨道时长相加；当前可导出时长只按视频轨计算。
 - **预览与导出共用同一份 timeline 数据**；预览保真度差异：ExoPlayer 顺序 playlist 应用裁剪，速度/音量/静音预览为 1x（对话框内明示），导出完整生效。
 - **导出能力矩阵（media3 1.4.1，compileSdk 34 兼容的最终版本线）**：
   - ✅ 视频轨顺序导出：裁剪、0.25-4x 速度、0-200% 音量、静音、片段自带音频音画同步
-  - ✅ 完整文件验证（可播放 + 时长 ±10%）；.tmp → 验证 → 原子 rename，中断不留半成品
+  - ✅ 完整文件验证（可播放 + 时长 ±10%）；先严格校验所有源视频/裁剪边界，任何片段丢失或不可读取即拒绝导出；`.tmp → 验证 → 原子 rename`，绝不在原子重命名失败后复制为最终文件。
   - ❌ 音频轨（配乐）混音导出——需 compileSdk 35 + media3 1.5 升级后补；UI 固定提示，不承诺
 - **导出生命周期**：ViewModel 作用域，关闭应用中止导出（tmp 不入结果页），需手动重试；前台服务化属后续增强。
 - 成片入库：`HistoryRepository.newMediaFile + add`（tags: `project-export`），结果页可见/可分享/可存相册。
 
 ## 预算字段语义（P1）
 
-`VideoProject.budget` 是项目级软预算上限（平台点数，非货币）。P1 行为：项目主页任务区汇总本项目任务的 `estimatedCloudCost`，超过预算时显示警示横幅；**提交不受阻断**——预算达标自动阻止批量提交是 P3（AI 导演阶段）的交付项，需要用户在设置中明确开启后才生效。
+`VideoProject.budget` 是项目级估算预算上限（平台点数，非货币），用户在项目设置页编辑，可留空取消。更改其他设置不清空既有预算；`BudgetGate` 在项目云端提交/重试前计算 `spent + newEstimate > budget` 并阻止超预算提交（只是费用估算，不能作为平台实际账单）。未选择模型的项目也能离线新建/管理素材/剧本，生成时再明确选模型。
 
 ## AI 导演（P3）
 

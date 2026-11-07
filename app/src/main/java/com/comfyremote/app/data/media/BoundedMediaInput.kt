@@ -16,7 +16,10 @@ internal object BoundedMediaInput {
         return output.toByteArray()
     }
 
-    fun copy(source: InputStream, target: OutputStream, limit: Long): Long {
+    fun copy(
+        source: InputStream, target: OutputStream, limit: Long,
+        onProgress: (Long) -> Unit = {},
+    ): Long {
         require(limit > 0)
         val buffer = ByteArray(64 * 1024)
         var received = 0L
@@ -26,6 +29,7 @@ internal object BoundedMediaInput {
             received += n
             if (received > limit) throw IOException("Media input exceeds ${limit / (1024 * 1024)} MiB")
             target.write(buffer, 0, n)
+            onProgress(received)
         }
         return received
     }

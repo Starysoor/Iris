@@ -93,6 +93,8 @@ Release builds are produced by GitHub Actions on `v*` tags (signing key provided
 
 - [Cloud services: providers, configuration, recovery and known limits](docs/CloudProviders.md)
 - [AutoDL cloud workflows, parameters and billing](docs/AutoDL.md)
+- [Iris Studio project model and migration notes](docs/PROJECT_MODEL.md)
+- [Iris Studio QA / emulator and phone acceptance checklist](docs/STUDIO_QA.md)
 - [v2.3.2 release notes](docs/releases/v2.3.2.md)
 - [v2.3.0 release notes](docs/releases/v2.3.0.md)
 - [Verification screenshots](docs/verification)

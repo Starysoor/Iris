@@ -248,9 +248,9 @@ fun ProjectHomeScreen(
             project = project,
             workflows = workflows,
             onDismiss = { projectSettings = false },
-            onSave = { title, synopsis, workflowPath, aspect, defaults, duration ->
+            onSave = { title, synopsis, workflowPath, aspect, defaults, duration, budget ->
                 viewModel.updateProjectSettings(
-                    project.id, title, synopsis, workflowPath, aspect, defaults, duration,
+                    project.id, title, synopsis, workflowPath, aspect, defaults, duration, budget,
                 )
                 projectSettings = false
             },

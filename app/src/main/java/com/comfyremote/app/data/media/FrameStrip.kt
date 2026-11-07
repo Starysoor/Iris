@@ -6,7 +6,7 @@ import kotlin.math.abs
 import kotlin.math.max
 
 /**
- * Frame-strip tooling for the continuity assistant (#57 P3): evenly spaced
+ * Frame-strip tooling for the continuity assistant (#57 P3): bounded thumbnails, evenly spaced
  * frames from one clip plus a pure pixel-distance metric so two frames can be
  * compared cheaply. All Android calls stay in [extractFrames]; the comparison
  * is JVM-testable.
@@ -33,8 +33,12 @@ object FrameStrip {
                 // half a step so 1-frame strips show the middle, not black.
                 val atUs = (durationMs * (i + 0.5) / count * 1000).toLong()
                     .coerceIn(0L, (durationMs - 1).coerceAtLeast(0L) * 1000)
-                retriever.getFrameAtTime(atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
-                    ?.let(frames::add)
+                // Decode a thumbnail directly; full 1080p/4K Bitmaps multiply memory usage
+                // by clips * frames and can OOM a project with only a dozen shots.
+                retriever.getScaledFrameAtTime(
+                    atUs, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                    THUMBNAIL_WIDTH, THUMBNAIL_HEIGHT,
+                )?.let(frames::add)
             }
             frames
         } catch (error: Exception) {
@@ -96,5 +100,7 @@ object FrameStrip {
         return out
     }
 
+    const val THUMBNAIL_WIDTH = 320
+    const val THUMBNAIL_HEIGHT = 320
     const val GRID = 8
 }

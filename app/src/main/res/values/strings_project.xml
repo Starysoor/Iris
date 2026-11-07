@@ -20,6 +20,9 @@
     <!-- Dialogs -->
     <string name="proj_field_synopsis">Synopsis / script (optional)</string>
     <string name="proj_field_duration">Target duration (seconds, optional)</string>
+    <string name="proj_no_default_workflow">No model yet · edit project offline</string>
+    <string name="proj_field_budget">Cloud budget limit (estimated provider points)</string>
+    <string name="proj_field_budget_hint">Optional; leave blank to disable. Estimates are not bills. Exceeding the limit blocks project submissions.</string>
 
     <!-- Asset library -->
     <string name="proj_assets_manage">Manage</string>
@@ -33,6 +36,8 @@
     <string name="proj_asset_label">Label</string>
     <string name="proj_asset_tags">Tags</string>
     <string name="proj_asset_tags_hint">Comma separated, e.g. hero, main, v2</string>
+    <string name="proj_asset_import_progress">Importing: %1$d / %2$d MiB</string>
+    <string name="proj_asset_import_progress_unknown">Importing: %1$d MiB (unknown size)</string>
     <string name="proj_profiles">Consistency profiles</string>
     <string name="proj_profile_new">New profile</string>
     <string name="proj_profile_edit">Edit profile</string>
@@ -66,7 +71,7 @@
     <string name="proj_takes_cost">Est. %1$s points</string>
     <string name="proj_tasks_summary">%1$d tasks · est. %2$s points</string>
     <string name="proj_task_cost">~%1$d pts</string>
-    <string name="proj_budget_exceeded">Estimated spend (%2$s points) exceeds this project budget (%1$s points). Submissions keep working; block-at-budget arrives in a later release.</string>
+    <string name="proj_budget_exceeded">Estimated spend (%2$s points) exceeds this project budget (%1$s points). Further cloud submissions in this project are blocked until the budget changes.</string>
     <string name="proj_open_timeline">Open timeline</string>
     <string name="proj_timeline_title">Timeline</string>
     <string name="proj_timeline_duration">Total %1$s</string>
@@ -105,7 +110,10 @@
     <string name="proj_export_share">Share</string>
     <string name="proj_export_save_gallery">Save to gallery</string>
     <string name="proj_export_no_clips">No exportable video clips on the timeline</string>
-    <string name="proj_export_skipped">Skipped clips with missing media: %1$s</string>
+    <string name="proj_export_skipped">Export blocked: missing source media for %1$s</string>
+    <string name="proj_export_unreadable">Export blocked: source media unreadable for %1$s</string>
+    <string name="proj_export_invalid_trim">Export blocked: trim ends past source duration for %1$s</string>
+    <string name="proj_export_commit_failed">Cannot atomically commit the completed video; nothing was added to Results. Retry.</string>
     <string name="proj_export_history_name">%1$s · Final cut</string>
     <string name="proj_open_director">AI director</string>
     <string name="proj_director_title">AI director</string>

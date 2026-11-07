@@ -92,7 +92,7 @@ class TakeWorkshopTest {
     }
 
     @Test
-    fun deletingTheOnlyDoneTakeReturnsTheShotToDraftAndDeletesTheFile() {
+    fun deletingTheOnlyDoneTakePreservesHistoryOwnedFile() {
         val store = store()
         val project = store.create("Studio", "wf")!!
         val shot = store.addShot(project.id, "scene")!!
@@ -109,8 +109,8 @@ class TakeWorkshopTest {
         assertNull(after.resultPath)
         assertNull(after.selectedTakeId)
         assertTrue(after.takes.isEmpty())
-        // The result file had no remaining reference, so it was deleted.
-        assertFalse(media.exists())
+        // This path may be owned by the independent Results/History library.
+        assertTrue(media.exists())
     }
 
     @Test
@@ -138,6 +138,32 @@ class TakeWorkshopTest {
 
         assertTrue(store.deleteTake(project.id, shot.id, takeId))
         assertFalse(store.deleteTake(project.id, shot.id, takeId))
+    }
+
+
+    @Test
+    fun cannotDeleteAnActiveTakeAndNeverLoseTaskIdentity() {
+        val store = store()
+        val project = store.create("Studio", "wf")!!
+        val shot = store.addShot(project.id, "scene")!!
+        assertTrue(store.attachTask(project.id, shot.id, "paid-remote-task"))
+        val takeId = store.project(project.id)!!.shots.single().takes.single().id
+        assertFalse(store.deleteTake(project.id, shot.id, takeId))
+        assertFalse(store.selectTake(project.id, shot.id, takeId))
+        assertEquals("paid-remote-task", store.project(project.id)!!.shots.single().taskId)
+        assertEquals("running", store.project(project.id)!!.shots.single().takes.single().status)
+    }
+
+    @Test
+    fun selectingFinishedTakeDetachesStaleTaskAndClearsOldTail() {
+        val seeded = twoDoneTakes()
+        assertTrue(seeded.store.selectTake(seeded.projectId, seeded.shotId, "take-b"))
+        val selected = shot(seeded)
+        assertNull(selected.taskId)
+        assertNull(selected.lastFramePath)
+        assertFalse(selected.tailFrameStored)
+        assertFalse(seeded.store.markDone(seeded.projectId, seeded.shotId, "/m/stale.mp4", null))
+        assertEquals("/m/take-b.mp4", shot(seeded).resultPath)
     }
 
     @Test

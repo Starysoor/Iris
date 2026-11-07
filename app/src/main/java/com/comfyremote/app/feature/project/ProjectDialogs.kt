@@ -73,7 +73,7 @@ internal fun WorkflowPicker(
                 Text(
                     workflows.firstOrNull { it.path == selectedPath }?.let {
                         "${it.providerLabel} · ${it.name}"
-                    } ?: stringResource(R.string.board_choose_workflow),
+                    } ?: stringResource(R.string.proj_no_default_workflow),
                     style = MaterialTheme.typography.bodyLarge,
                     modifier = Modifier.weight(1f),
                     maxLines = 1,
@@ -83,6 +83,10 @@ internal fun WorkflowPicker(
             }
         }
         DropdownMenu(menu, { menu = false }) {
+            DropdownMenuItem(
+                text = { Text(stringResource(R.string.proj_no_default_workflow)) },
+                onClick = { onSelect(""); menu = false },
+            )
             workflows.forEach { workflow ->
                 DropdownMenuItem(
                     text = { Text("${workflow.providerLabel} · ${workflow.name}") },
@@ -105,8 +109,7 @@ internal fun CreateProjectDialog(
     var chainFrames by remember { mutableStateOf(true) }
     var workflowPath by remember {
         mutableStateOf(
-            workflows.firstOrNull { it.workflowId == "minimax_h3_lightx2v_v5" }?.path
-                ?: workflows.firstOrNull()?.path.orEmpty()
+            ""
         )
     }
     AlertDialog(
@@ -171,7 +174,7 @@ internal fun CreateProjectDialog(
             TextAction(
                 text = stringResource(R.string.board_create),
                 onClick = { onCreate(title, workflowPath, style, synopsis, chainFrames) },
-                enabled = workflowPath.isNotBlank(),
+                enabled = title.isNotBlank(),
             )
         },
         dismissButton = {
@@ -196,6 +199,7 @@ internal fun ProjectSettingsDialog(
         aspectRatio: String,
         defaults: Map<String, String>,
         targetDurationSeconds: Int?,
+        budget: Double?,
     ) -> Unit,
 ) {
     var title by remember(project.title) { mutableStateOf(project.title) }
@@ -207,6 +211,11 @@ internal fun ProjectSettingsDialog(
     var durationText by remember(project.targetDurationSeconds) {
         mutableStateOf(project.targetDurationSeconds?.toString().orEmpty())
     }
+    var budgetText by remember(project.budget) {
+        mutableStateOf(project.budget?.toString().orEmpty())
+    }
+    val budgetValid = budgetText.isBlank() ||
+        (budgetText.toDoubleOrNull()?.let { it.isFinite() && it > 0.0 } == true)
     var defaultsText by remember(project.defaultValues) {
         mutableStateOf(project.defaultValues.entries.joinToString("\n") { "${it.key}=${it.value}" })
     }
@@ -244,6 +253,10 @@ internal fun ProjectSettingsDialog(
                         onClick = { workflowMenu = true },
                     )
                     DropdownMenu(workflowMenu, { workflowMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.proj_no_default_workflow)) },
+                            onClick = { workflowPath = ""; workflowMenu = false },
+                        )
                         workflows.forEach { wf ->
                             DropdownMenuItem(
                                 text = { Text("${wf.providerLabel} · ${wf.name}") },
@@ -270,6 +283,14 @@ internal fun ProjectSettingsDialog(
                     modifier = Modifier.fillMaxWidth(),
                 )
                 IrisTextField(
+                    value = budgetText,
+                    onValueChange = { budgetText = it.take(16) },
+                    label = stringResource(R.string.proj_field_budget),
+                    supportingText = stringResource(R.string.proj_field_budget_hint),
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+                IrisTextField(
                     value = defaultsText,
                     onValueChange = { defaultsText = it },
                     label = stringResource(R.string.board_default_params),
@@ -290,8 +311,8 @@ internal fun ProjectSettingsDialog(
                         if (key.isBlank()) null else key to value
                     }
                 }.toMap()
-                onSave(title, synopsis, workflowPath, aspectRatio, defaults, durationText.toIntOrNull())
-            }) { Text(stringResource(R.string.board_save)) }
+                onSave(title, synopsis, workflowPath, aspectRatio, defaults, durationText.toIntOrNull(), budgetText.toDoubleOrNull())
+            }, enabled = budgetValid) { Text(stringResource(R.string.board_save)) }
         },
         dismissButton = {
             TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
@@ -494,7 +515,7 @@ internal fun TakeWorkshopDialog(
                                 }
                             }
                             Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                                if (take.status == "done" && !selected) {
+                                if (take.status == "done" && !selected && shot.status != "running") {
                                     TextAction(stringResource(R.string.proj_takes_select), onClick = { onSelect(take.id) })
                                 }
                                 TextAction(
@@ -508,11 +529,13 @@ internal fun TakeWorkshopDialog(
                                         onClick = { onDiscard(take.id) },
                                     )
                                 }
-                                TextAction(
-                                    stringResource(R.string.action_delete),
-                                    color = MaterialTheme.colorScheme.error,
-                                    onClick = { onDelete(take.id) },
-                                )
+                                if (take.status != "running" && shot.status != "running") {
+                                    TextAction(
+                                        stringResource(R.string.action_delete),
+                                        color = MaterialTheme.colorScheme.error,
+                                        onClick = { onDelete(take.id) },
+                                    )
+                                }
                             }
                         }
                     }

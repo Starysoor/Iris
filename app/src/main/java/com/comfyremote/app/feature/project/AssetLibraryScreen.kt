@@ -76,6 +76,7 @@ fun AssetLibraryScreen(
 ) {
     val projects by viewModel.projects.collectAsState()
     val message by viewModel.message.collectAsState()
+    val importProgress by viewModel.assetImport.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
     val snackbar = remember { SnackbarHostState() }
     var kindFilter by remember { mutableStateOf(0) }
@@ -102,7 +103,7 @@ fun AssetLibraryScreen(
                 title = stringResource(R.string.proj_assets_title),
                 onBack = onBack,
                 actions = {
-                    IconButton(onClick = { assetRoleDialog = true }) {
+                    IconButton(onClick = { assetRoleDialog = true }, enabled = !importProgress.running) {
                         Icon(Icons.Outlined.Add, stringResource(R.string.board_add_asset))
                     }
                 },
@@ -131,6 +132,23 @@ fun AssetLibraryScreen(
             .filter { selectedKind == null || it.kind == selectedKind }
             .sortedBy { it.order }
         Column(Modifier.padding(pad).fillMaxSize()) {
+            if (importProgress.running) {
+                Row(
+                    Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    val receivedMiB = importProgress.copiedBytes / (1024 * 1024)
+                    val totalMiB = importProgress.totalBytes?.let { (it + 1024 * 1024 - 1) / (1024 * 1024) }
+                    Text(
+                        if (totalMiB != null) stringResource(R.string.proj_asset_import_progress, receivedMiB, totalMiB)
+                        else stringResource(R.string.proj_asset_import_progress_unknown, receivedMiB),
+                        style = IrisType.metaSmall,
+                        modifier = Modifier.weight(1f),
+                    )
+                    TextAction(stringResource(R.string.action_cancel), onClick = { viewModel.cancelAssetImport() })
+                }
+            }
             ProfilesSection(
                 project = project,
                 onCreate = { creatingProfile = true },

@@ -40,7 +40,9 @@ class TimelineTest {
 
         assertEquals(timeline, restored.timeline)
         assertEquals(1000L, clip.durationMs) // (2500-500)/2
-        assertEquals(11_000L, restored.timeline!!.totalDurationMs) // 1000 video + 10000 audio
+        assertEquals(10_000L, restored.timeline!!.totalDurationMs) // overlapping tracks, use longest
+        assertEquals(1000L, restored.timeline!!.videoDurationMs)
+        assertEquals(10_000L, restored.timeline!!.audioDurationMs)
     }
 
     @Test

@@ -3,6 +3,7 @@ package com.comfyremote.app.data.project
 import android.content.Context
 import com.comfyremote.app.data.cloud.AutoDlConfig
 import com.comfyremote.app.data.reference.ProjectAsset
+import com.comfyremote.app.data.storyboard.StoryboardCodec
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
@@ -74,6 +75,8 @@ class ProjectStore internal constructor(private val file: File) {
     }
 
     fun delete(projectId: String) = synchronized(lock) {
+        val project = _projects.value.firstOrNull { it.id == projectId } ?: return@synchronized false
+        if (project.shots.any { it.status == "running" }) return@synchronized false
         if (write(_projects.value.filterNot { it.id == projectId })) {
             gcOrphanMediaLocked()
             true
@@ -103,7 +106,7 @@ class ProjectStore internal constructor(private val file: File) {
     }
 
     fun setBudget(projectId: String, budget: Double?): Boolean = update(projectId) {
-        it.copy(budget = budget?.takeIf { value -> value > 0.0 }, updatedAt = System.currentTimeMillis())
+        it.copy(budget = budget?.takeIf { value -> value.isFinite() && value > 0.0 }, updatedAt = System.currentTimeMillis())
     }
 
     /** Toggles the optional tail-frame relay. Turning it off clears automatic refs only. */
@@ -125,22 +128,25 @@ class ProjectStore internal constructor(private val file: File) {
         defaultValues: Map<String, String>,
         targetDurationSeconds: Int? = null,
         budget: Double? = null,
+        updateBudget: Boolean = budget != null,
     ): Boolean = update(projectId) { project ->
         val path = workflowPath.trim()
         val workflowChanged = project.workflowPath != path
         project.copy(
             title = title.trim().ifBlank { "Project" },
             synopsis = synopsis.trim(),
-            workflowId = path.substringAfter(':'),
+            workflowId = if (path.isBlank()) "" else path.substringAfter(':'),
             workflowPath = path,
             providerId = providerId.trim(),
             aspectRatio = aspectRatio.trim(),
             defaultValues = defaultValues,
             targetDurationSeconds = targetDurationSeconds?.takeIf { it > 0 },
-            budget = budget?.takeIf { it > 0.0 },
+            budget = if (updateBudget) budget?.takeIf { it.isFinite() && it > 0.0 } else project.budget,
             shots = if (workflowChanged) {
-                project.shots.map {
-                    it.copy(workflowId = null, workflowPath = null, providerId = null, values = emptyMap())
+                // Explicit per-shot provider/model overrides are independent of the project default.
+                // Only inherited fields are reset when the default workflow changes.
+                project.shots.map { shot ->
+                    if (shot.workflowPath.isNullOrBlank()) shot.copy(values = emptyMap()) else shot
                 }
             } else {
                 project.shots
@@ -245,12 +251,10 @@ class ProjectStore internal constructor(private val file: File) {
 
     fun removeAsset(projectId: String, assetId: String): Boolean = synchronized(lock) {
         var removed = false
-        var removedPath: String? = null
         val persisted = update(projectId) { project ->
             val asset = project.assets.firstOrNull { it.id == assetId }
                 ?: return@update project
             removed = true
-            removedPath = asset.path
             val remaining = project.assets.filterNot { it.id == assetId }
             val profiles = project.profiles.map { profile ->
                 if (assetId in profile.assetIds) {
@@ -297,9 +301,8 @@ class ProjectStore internal constructor(private val file: File) {
             )
         }
         if (persisted && removed) {
-            // An explicitly removed asset no longer needs the GC grace period.
-            removedPath?.takeIf { path -> path.isNotBlank() && path !in referencedMediaPaths() }
-                ?.let { path -> runCatching { File(path).delete() } }
+            // Never unlink arbitrary paths: assets can also be used by History or legacy projects.
+            // Only the app-owned project media GC may reclaim expired, unreferenced files.
             gcOrphanMediaLocked()
         }
         removed && persisted
@@ -367,17 +370,20 @@ class ProjectStore internal constructor(private val file: File) {
         }
 
     fun deleteShot(projectId: String, shotId: String): Boolean = synchronized(lock) {
+        var deleted = false
         val persisted = updateLocked(projectId) { project ->
             val index = project.shots.indexOfFirst { it.id == shotId }
             if (index < 0) return@updateLocked project
+            if (project.shots[index].status == "running") return@updateLocked project
+            deleted = true
             val remaining = project.shots.toMutableList().apply { removeAt(index) }
             project.copy(
                 shots = rebaseAutoReferences(remaining, project.chainFrames),
                 updatedAt = System.currentTimeMillis(),
             )
         }
-        if (persisted) gcOrphanMediaLocked()
-        persisted
+        if (persisted && deleted) gcOrphanMediaLocked()
+        deleted && persisted
     }
 
     /**
@@ -399,6 +405,9 @@ class ProjectStore internal constructor(private val file: File) {
                         values = shot.values,
                         referenceAssetIds = shot.referenceAssetIds,
                     )).copy(
+                        prompt = takeSeed?.prompt?.ifBlank { shot.prompt } ?: shot.prompt,
+                        referenceAssetIds = takeSeed?.referenceAssetIds?.takeIf { it.isNotEmpty() }
+                            ?: shot.referenceAssetIds,
                         id = UUID.randomUUID().toString(),
                         status = "running",
                         taskId = taskId,
@@ -423,10 +432,14 @@ class ProjectStore internal constructor(private val file: File) {
     /** Marks the shot done and closes the matching running take with the result. */
     fun markDone(projectId: String, shotId: String, resultPath: String, lastFramePath: String?): Boolean =
         synchronized(lock) {
-            updateLocked(projectId) { project ->
+            var finished = false
+            val persisted = updateLocked(projectId) { project ->
                 val shots = project.shots.map { shot ->
-                    if (shot.id != shotId) shot
+                    if (shot.id != shotId || shot.status != "running" || shot.taskId.isNullOrBlank() ||
+                        shot.takes.none { it.status == "running" && it.taskId == shot.taskId }
+                    ) shot
                     else {
+                        finished = true
                         val takes = shot.takes.map { take ->
                             if (take.status == "running" && take.taskId != null && take.taskId == shot.taskId) {
                                 take.copy(status = "done", resultPath = resultPath, error = null)
@@ -452,6 +465,7 @@ class ProjectStore internal constructor(private val file: File) {
                     updatedAt = System.currentTimeMillis(),
                 )
             }
+            finished && persisted
         }
 
     fun markFailed(projectId: String, shotId: String, message: String): Boolean =
@@ -499,20 +513,22 @@ class ProjectStore internal constructor(private val file: File) {
             var selected = false
             val persisted = updateLocked(projectId) { project ->
                 val shots = project.shots.map { shot ->
-                    if (shot.id != shotId) return@map shot
+                    if (shot.id != shotId || shot.status == "running") return@map shot
                     val take = shot.takes.firstOrNull { it.id == takeId } ?: return@map shot
                     if (take.status != "done" || take.resultPath.isNullOrBlank()) return@map shot
                     selected = true
                     shot.copy(
                         status = "done",
                         resultPath = take.resultPath,
+                        taskId = null,
+                        lastFramePath = null,
                         // The promoted result needs its own tail-frame artifacts.
                         tailFrameStored = false,
                         error = null,
                         selectedTakeId = take.id,
                     )
                 }
-                project.copy(shots = shots, updatedAt = System.currentTimeMillis())
+                project.copy(shots = rebaseAutoReferences(shots, project.chainFrames), updatedAt = System.currentTimeMillis())
             }
             selected && persisted
         }
@@ -533,14 +549,14 @@ class ProjectStore internal constructor(private val file: File) {
      */
     fun deleteTake(projectId: String, shotId: String, takeId: String): Boolean =
         synchronized(lock) {
-            var removedPath: String? = null
             var removed = false
             val persisted = updateLocked(projectId) { project ->
                 val shots = project.shots.map { shot ->
                     if (shot.id != shotId) return@map shot
                     val take = shot.takes.firstOrNull { it.id == takeId } ?: return@map shot
+                    // Never discard the active paid task's recovery identity.
+                    if (shot.status == "running" || take.status == "running") return@map shot
                     removed = true
-                    removedPath = take.resultPath
                     val takes = shot.takes.filterNot { it.id == takeId }
                     val wasSelected = shot.selectedTakeId == takeId
                     val fallback = takes.lastOrNull { it.status == "done" && !it.resultPath.isNullOrBlank() }
@@ -550,6 +566,8 @@ class ProjectStore internal constructor(private val file: File) {
                             status = "done",
                             resultPath = fallback.resultPath,
                             selectedTakeId = fallback.id,
+                            taskId = null,
+                            lastFramePath = null,
                             tailFrameStored = false,
                             takes = takes,
                         )
@@ -559,17 +577,17 @@ class ProjectStore internal constructor(private val file: File) {
                             taskId = null,
                             resultPath = null,
                             selectedTakeId = null,
+                            lastFramePath = null,
                             tailFrameStored = false,
                             takes = takes,
                         )
                         else -> shot.copy(takes = takes)
                     }
                 }
-                project.copy(shots = shots, updatedAt = System.currentTimeMillis())
+                project.copy(shots = rebaseAutoReferences(shots, project.chainFrames), updatedAt = System.currentTimeMillis())
             }
             if (persisted && removed) {
-                removedPath?.takeIf { path -> path.isNotBlank() && path !in referencedMediaPaths() }
-                    ?.let { path -> runCatching { File(path).delete() } }
+                // Keep History-owned media intact. Only expired project-owned files may be GCed.
                 gcOrphanMediaLocked()
             }
             removed && persisted
@@ -813,7 +831,22 @@ class ProjectStore internal constructor(private val file: File) {
     /** Deletes app-owned project media that no shot or asset references anymore. */
     private fun gcOrphanMediaLocked() {
         val mediaDir = File(file.parentFile, "storyboards")
-        val referenced = referencedMediaPaths()
+        // The old storyboard index remains a rollback anchor after migration.
+        // Protect its media too; otherwise deleting a migrated project can remove
+        // files still needed when a user installs the old APK.
+        val legacyFile = File(file.parentFile, "storyboards.json")
+        val legacyRefs = if (legacyFile.isFile) {
+            val raw = runCatching { legacyFile.readText() }.getOrNull() ?: return
+            val projects = StoryboardCodec.decode(raw)
+            val rows = runCatching { JSONArray(raw).length() }.getOrNull()
+            if (rows == null || rows != projects.size) return // damaged anchor: never GC blindly
+            projects.flatMap { legacy ->
+                legacy.assets.map { it.path } + legacy.shots.flatMap { shot ->
+                    listOfNotNull(shot.referencePath, shot.resultPath, shot.lastFramePath)
+                }
+            }.toSet()
+        } else emptySet()
+        val referenced = referencedMediaPaths() + legacyRefs
         val cutoff = System.currentTimeMillis() - MEDIA_GC_GRACE_MS
         mediaDir.walkTopDown().filter { it.isFile }.forEach { candidate ->
             if (candidate.absolutePath !in referenced && candidate.lastModified() < cutoff) {

@@ -589,10 +589,35 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     fun retryActiveTask() {
         val id = _state.value.activeTaskId ?: return
         val task = tasks.value.firstOrNull { it.taskId == id } ?: return
+        // A running remote task is not a retry candidate: duplicate submits can incur charges.
+        if (task.isActive) return
         val request = task.request.copy(
             id = UUID.randomUUID().toString(),
             createdAt = System.currentTimeMillis(),
         )
+        val projectId = request.storyboardProjectId
+        val shotId = request.storyboardShotId
+        if (projectId != null && shotId != null) {
+            val budget = container.projectStore.project(projectId)?.budget
+            val spent = taskCostStats(tasks.value, projectId)
+            when (val decision = BudgetGate.check(
+                spent.costSum, request.estimatedCloudCost?.toDouble() ?: 0.0, budget,
+            )) {
+                is BudgetGate.Decision.Blocked -> {
+                    _state.update { it.copy(message = AppStrings.get(
+                        R.string.gen_vm_budget_blocked,
+                        decision.budget, decision.spentEstimate, decision.newCost,
+                    )) }
+                    return
+                }
+                BudgetGate.Decision.Allowed -> Unit
+            }
+            val shot = container.projectStore.project(projectId)?.shots?.firstOrNull { it.id == shotId }
+            if (shot?.status == "running") {
+                _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_storyboard_running)) }
+                return
+            }
+        }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(listOf(request), localQueue = false)
@@ -600,7 +625,24 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 _state.update { it.copy(message = error.message ?: error.javaClass.simpleName) }
                 return@launch
             }
-            ids.firstOrNull()?.let { newId -> _state.update { it.copy(activeTaskId = newId) } }
+            ids.firstOrNull()?.let { newId ->
+                if (projectId != null && shotId != null) {
+                    val original = container.projectStore.project(projectId)
+                        ?.shots?.firstOrNull { it.id == shotId }
+                    container.projectStore.attachTask(
+                        projectId, shotId, newId,
+                        takeSeed = ShotTake(
+                            providerId = request.provider,
+                            workflowPath = request.workflowPath,
+                            prompt = original?.prompt.orEmpty(),
+                            values = request.fieldValues,
+                            referenceAssetIds = original?.referenceAssetIds.orEmpty(),
+                            costEstimate = request.estimatedCloudCost?.toDouble(),
+                        ),
+                    )
+                }
+                _state.update { it.copy(activeTaskId = newId) }
+            }
         }
     }
 

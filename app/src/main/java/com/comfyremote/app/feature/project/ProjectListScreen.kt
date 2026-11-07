@@ -140,7 +140,7 @@ private fun ProjectRow(project: VideoProject, workflowName: String, onClick: () 
         ?: project.assets.firstOrNull { it.kind == com.comfyremote.app.data.reference.AssetKind.IMAGE }?.path
     ListRow(
         title = project.title,
-        subtitle = workflowName,
+        subtitle = workflowName.ifBlank { stringResource(R.string.proj_no_default_workflow) },
         onClick = onClick,
         leading = { ProjectCover(cover) },
         meta = {

@@ -29,7 +29,9 @@ import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.feature.generate.isVideoPath
 import com.comfyremote.app.R
 import com.comfyremote.app.ui.AppStrings
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -56,6 +58,10 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val workflows: StateFlow<List<ProjectWorkflowOption>> = _workflows.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
+    data class AssetImportProgress(val running: Boolean = false, val copiedBytes: Long = 0, val totalBytes: Long? = null)
+    private val _assetImport = MutableStateFlow(AssetImportProgress())
+    val assetImport: StateFlow<AssetImportProgress> = _assetImport.asStateFlow()
+    private var assetImportJob: Job? = null
     private val syncing = mutableSetOf<String>()
 
     private companion object {
@@ -141,18 +147,18 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         chainFrames: Boolean = true,
     ): VideoProject? {
         val option = _workflows.value.firstOrNull { it.path == workflowPath }
-        if (option == null) {
+        if (workflowPath.isNotBlank() && option == null) {
             _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return null
         }
         return container.projectStore.create(
             title = title,
             chainFrames = chainFrames,
-            workflowId = option.workflowId,
+            workflowId = option?.workflowId.orEmpty(),
             stylePrompt = stylePrompt,
             synopsis = synopsis,
-            workflowPath = option.path,
-            providerId = option.providerId,
+            workflowPath = option?.path.orEmpty(),
+            providerId = option?.providerId.orEmpty(),
         ).also { created ->
             if (created == null) _message.value = AppStrings.get(R.string.board_err_persist)
         }
@@ -180,11 +186,14 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         aspectRatio: String,
         defaultValues: Map<String, String>,
         targetDurationSeconds: Int?,
+        budget: Double?,
     ) {
         val providerId = container.cloudProviders.forPath(workflowPath)?.id.orEmpty()
         container.projectStore.updateSettings(
             projectId, title, synopsis, workflowPath, providerId, aspectRatio, defaultValues,
             targetDurationSeconds = targetDurationSeconds,
+            budget = budget,
+            updateBudget = true,
         )
     }
 
@@ -249,23 +258,24 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val take = shot.takes.firstOrNull { it.id == takeId } ?: return
         if (!container.projectStore.selectTake(projectId, shotId, takeId)) return
         val resultPath = take.resultPath ?: return
-        if (!syncing.add(shotId)) return
+        // Each switch can complete out of order; only the currently selected take may write back.
         viewModelScope.launch {
-            try {
-                val index = project.shots.indexOfFirst { it.id == shotId }
-                val lastFrame = extractLastFrame(shotId, resultPath)
-                if (lastFrame != null) {
-                    container.projectStore.updateShot(projectId, shotId) {
-                        it.copy(lastFramePath = lastFrame, tailFrameStored = false)
-                    }
-                    val fresh = container.projectStore.project(projectId)
-                        ?.shots?.firstOrNull { it.id == shotId } ?: shot
-                    if (addTailFrameArtifacts(project, fresh, index, resultPath, lastFrame)) {
-                        markTailFrameStored(projectId, shotId)
-                    }
-                }
-            } finally {
-                syncing.remove(shotId)
+            val index = project.shots.indexOfFirst { it.id == shotId }
+            val lastFrame = extractLastFrame(shotId, resultPath) ?: return@launch
+            fun isCurrent(): Boolean = container.projectStore.project(projectId)
+                ?.shots?.firstOrNull { it.id == shotId }
+                ?.let { it.selectedTakeId == takeId && it.resultPath == resultPath } == true
+            if (!isCurrent()) return@launch
+            if (!container.projectStore.updateShot(projectId, shotId) { current ->
+                    if (current.selectedTakeId == takeId && current.resultPath == resultPath) {
+                        current.copy(lastFramePath = lastFrame, tailFrameStored = false)
+                    } else current
+                }) return@launch
+            if (!isCurrent()) return@launch
+            val fresh = container.projectStore.project(projectId)
+                ?.shots?.firstOrNull { it.id == shotId } ?: return@launch
+            if (addTailFrameArtifacts(project, fresh, index, resultPath, lastFrame) && isCurrent()) {
+                markTailFrameStored(projectId, shotId)
             }
         }
     }
@@ -279,7 +289,13 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun deleteTake(projectId: String, shotId: String, takeId: String) {
-        container.projectStore.deleteTake(projectId, shotId, takeId)
+        if (!container.projectStore.deleteTake(projectId, shotId, takeId)) {
+            _message.value = AppStrings.get(R.string.board_err_delete_running_shot)
+            return
+        }
+        val selected = container.projectStore.project(projectId)
+            ?.shots?.firstOrNull { it.id == shotId }?.selectedTakeId
+        if (selected != null) switchToTake(projectId, shotId, selected)
     }
 
     fun moveShot(projectId: String, shotId: String, delta: Int) =
@@ -353,16 +369,31 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Library import: any media kind, with tags, via the same bounded pipeline. */
+    /** Library import: bounded streaming copy with progress and cancellation. */
     fun importAsset(projectId: String, role: ReferenceRole, uri: Uri) {
-        viewModelScope.launch {
-            runCatching { container.projectAssetStore.importUri(uri, role) }
-                .onSuccess { asset -> container.projectStore.addAsset(projectId, asset) }
-                .onFailure { e ->
-                    _message.value = AppStrings.get(R.string.board_err_add_asset, e.message ?: "error")
+        if (assetImportJob?.isActive == true) return
+        assetImportJob = viewModelScope.launch {
+            _assetImport.value = AssetImportProgress(running = true)
+            try {
+                val asset = container.projectAssetStore.importUri(uri, role) { copied, total ->
+                    _assetImport.value = AssetImportProgress(true, copied, total)
                 }
+                if (!container.projectStore.addAsset(projectId, asset)) {
+                    // The file must not be leaked if the project index cannot be written.
+                    File(asset.path).delete()
+                    _message.value = AppStrings.get(R.string.board_err_persist)
+                }
+            } catch (cancelled: CancellationException) {
+                // The import store removes its .tmp file; cancellation is user-initiated.
+            } catch (e: Exception) {
+                _message.value = AppStrings.get(R.string.board_err_add_asset, e.message ?: "error")
+            } finally {
+                _assetImport.value = AssetImportProgress()
+            }
         }
     }
+
+    fun cancelAssetImport() { assetImportJob?.cancel() }
 
     /** Label/tag edits upsert the asset in place; the media file is untouched. */
     fun updateAsset(projectId: String, asset: ProjectAsset) {
@@ -561,6 +592,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private val exporter by lazy { VideoExporter(container.app) }
+    private var exportJob: Job? = null
     private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
     val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
 
@@ -570,23 +602,46 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
      * file never becomes a finished result); the user retries manually.
      */
     fun startExport(projectId: String) {
-        if (_exportState.value is ExportState.Running) return
+        if (_exportState.value is ExportState.Running || exportJob?.isActive == true) return
         val project = container.projectStore.project(projectId) ?: return
         val timeline = project.timeline
         if (timeline == null || timeline.videoTrack.isEmpty()) {
             _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
             return
         }
-        viewModelScope.launch {
+        exportJob = viewModelScope.launch {
             val available = withContext(Dispatchers.IO) {
                 timeline.videoTrack.map { it.sourcePath }.filter { File(it).isFile }.toSet()
             }
-            val plan = ExportPlanBuilder.build(timeline, available)
-            if (plan.skippedMissing.isNotEmpty()) {
-                _message.value = AppStrings.get(
+            val missing = timeline.videoTrack.filter { it.sourcePath !in available }
+            if (missing.isNotEmpty()) {
+                _exportState.value = ExportState.Failed(AppStrings.get(
                     R.string.proj_export_skipped,
-                    plan.skippedMissing.joinToString(", "),
-                )
+                    missing.joinToString(", ") { it.sourceLabel.ifBlank { it.sourcePath.substringAfterLast('/') } },
+                ))
+                return@launch
+            }
+            // Validate actual media metadata before invoking the encoder. An existing file
+            // may be corrupt or have a clip out-point past its playable duration.
+            val durationByPath = withContext(Dispatchers.IO) {
+                available.associateWith { mediaDurationMs(it) }
+            }
+            val unreadable = durationByPath.filterValues { it == null || it <= 0L }.keys
+            if (unreadable.isNotEmpty()) {
+                _exportState.value = ExportState.Failed(AppStrings.get(
+                    R.string.proj_export_unreadable,
+                    unreadable.joinToString(", ") { it.substringAfterLast('/') },
+                ))
+                return@launch
+            }
+            val plan = ExportPlanBuilder.build(
+                timeline, available, durationByPath.mapValues { it.value!! },
+            )
+            if (plan.invalidTrims.isNotEmpty()) {
+                _exportState.value = ExportState.Failed(AppStrings.get(
+                    R.string.proj_export_invalid_trim, plan.invalidTrims.joinToString(", "),
+                ))
+                return@launch
             }
             if (plan.isEmpty) {
                 _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
@@ -607,11 +662,16 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                         _exportState.value = ExportState.Idle
                     }
                     is VideoExporter.Result.Success -> {
+                        // Same-directory rename is atomic; never copy directly into a
+                        // final .mp4 name, because an interrupted copy leaves a partial movie.
                         if (!tmp.renameTo(target)) {
-                            tmp.copyTo(target, overwrite = true)
                             tmp.delete()
+                            _exportState.value = ExportState.Failed(
+                                AppStrings.get(R.string.proj_export_commit_failed),
+                            )
+                            return@onSuccess
                         }
-                        container.historyRepository.add(
+                        val saved = runCatching { container.historyRepository.add(
                             HistoryItem(
                                 id = "project-export-${project.id}-$stamp",
                                 wfPath = project.workflowPath,
@@ -626,20 +686,29 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                                 seeds = "",
                                 serverUrl = "",
                                 tags = listOf("project-export"),
-                            ),
-                        )
-                        _exportState.value = ExportState.Succeeded(target.absolutePath)
+                            ))
+                        }
+                        saved.onSuccess {
+                            _exportState.value = ExportState.Succeeded(target.absolutePath)
+                        }.onFailure { error ->
+                            target.delete()
+                            _exportState.value = ExportState.Failed(error.message ?: error.javaClass.simpleName)
+                        }
                     }
                 }
             }.onFailure { error ->
                 tmp.delete()
-                _exportState.value = ExportState.Failed(error.message ?: error.javaClass.simpleName)
+                _exportState.value = if (error is CancellationException) ExportState.Idle
+                    else ExportState.Failed(error.message ?: error.javaClass.simpleName)
             }
         }
     }
 
     fun cancelExport() {
-        if (_exportState.value is ExportState.Running) exporter.cancel()
+        exporter.cancel()
+        // Media3 cancellation may not invoke the completion listener; cancelling
+        // the coroutine resumes the cancellable continuation and unblocks the UI.
+        exportJob?.cancel()
     }
 
     fun dismissExport() {
@@ -798,7 +867,17 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val side = if (seamAtEnd) shot.lastFramePath else null
         if (side != null && File(side).isFile) {
             runCatching {
-                val bitmap = BitmapFactory.decodeFile(side)
+                val bounds = BitmapFactory.Options().apply { inJustDecodeBounds = true }
+                BitmapFactory.decodeFile(side, bounds)
+                val longest = maxOf(bounds.outWidth, bounds.outHeight)
+                val sample = if (longest > FrameStrip.THUMBNAIL_WIDTH) {
+                    var factor = 1
+                    while (longest / factor > FrameStrip.THUMBNAIL_WIDTH) factor *= 2
+                    factor
+                } else 1
+                val bitmap = BitmapFactory.decodeFile(side, BitmapFactory.Options().apply {
+                    inSampleSize = sample
+                })
                 if (bitmap != null) return bitmap
             }
         }
@@ -809,12 +888,17 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 if (seamAtEnd) {
                     val durationMs = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)
                         ?.toLongOrNull() ?: 0L
-                    retriever.getFrameAtTime(
+                    retriever.getScaledFrameAtTime(
                         (durationMs * 1000L - 1000L).coerceAtLeast(0L),
                         MediaMetadataRetriever.OPTION_CLOSEST,
+                        FrameStrip.THUMBNAIL_WIDTH,
+                        FrameStrip.THUMBNAIL_HEIGHT,
                     )
                 } else {
-                    retriever.getFrameAtTime(0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC)
+                    retriever.getScaledFrameAtTime(
+                        0L, MediaMetadataRetriever.OPTION_CLOSEST_SYNC,
+                        FrameStrip.THUMBNAIL_WIDTH, FrameStrip.THUMBNAIL_HEIGHT,
+                    )
                 }
             } finally {
                 retriever.release()
@@ -836,6 +920,10 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     )
                     return@forEach
                 }
+                // A user-promoted finished Take must not be overwritten by an old task emission.
+                if (shot.status == "done" && shot.selectedTakeId != null &&
+                    shot.takes.any { it.id == shot.selectedTakeId && it.status == "done" && it.resultPath == shot.resultPath }
+                ) return@forEach
                 val task = shot.taskId?.let(byId::get) ?: return@forEach
                 if (task.isActive) {
                     if (shot.status != "running") {
