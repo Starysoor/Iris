@@ -252,6 +252,8 @@ private fun AppNavHost(
                         )
                     },
                     onOpenTask = { taskId -> navController.navigate(Routes.task(taskId)) },
+                    onOpenStage = { path, name -> navController.navigate(Routes.generate(path, name)) },
+                    onOpenCreate = { navigateTopLevel(navController, Routes.CREATE) },
                 )
             }
             composable(
