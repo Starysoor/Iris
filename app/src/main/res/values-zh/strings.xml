@@ -144,4 +144,5 @@
     <string name="studio_contract_inventory">项目内类型及用途相符的候选素材：%1$d（尚未映射）</string>
     <string name="studio_contract_bounds">允许范围：%1$s 至 %2$s（服务商声明）</string>
     <string name="studio_contract_options">可选值：%1$s</string>
+    <string name="studio_contract_shortfall">项目素材库中缺少足够的不同文件来填充以下必填输入位：%1$s。请添加素材，或直接在创作页上传。</string>
 </resources>
