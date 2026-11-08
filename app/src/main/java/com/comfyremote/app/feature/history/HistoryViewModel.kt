@@ -1,6 +1,12 @@
 package com.comfyremote.app.feature.history
 
 import android.graphics.Bitmap
+import android.media.MediaMetadataRetriever
+import com.comfyremote.app.data.project.ProjectMediaLinks
+import com.comfyremote.app.data.project.ShotTake
+import com.comfyremote.app.data.project.TimelineClip
+import com.comfyremote.app.data.project.TrackKind
+import java.io.File
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.comfyremote.app.AppContainer
@@ -48,6 +54,82 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Projects shown by the "add to project" picker; reads the Studio index. */
     val storyboardProjects = container.projectStore.projects
+
+    data class LinkedResult(val projectId: String, val description: String)
+    private val _linkedResult = MutableStateFlow<LinkedResult?>(null)
+    val linkedResult: StateFlow<LinkedResult?> = _linkedResult.asStateFlow()
+    fun clearLinkedResult() { _linkedResult.value = null }
+
+    /**
+     * Add an already-rendered video as a *new candidate*, preserving the currently
+     * selected Take, running jobs, original History media and existing timeline.
+     */
+    fun attachAsTake(projectId: String, shotId: String, item: HistoryItem, path: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = File(path)
+            if (ProjectMediaLinks.kind(path) != ProjectMediaLinks.Kind.VIDEO ||
+                !file.isFile || !file.canRead()) {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "video unavailable")
+                return@launch
+            }
+            val owner = container.projectStore.project(projectId)
+            if (owner == null || owner.shots.none { it.id == shotId }) {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "shot missing")
+                return@launch
+            }
+            val take = ShotTake(
+                providerId = item.wfPath.substringBefore(':').takeIf { ':' in item.wfPath }.orEmpty(),
+                workflowPath = item.wfPath,
+                prompt = item.prompts.firstOrNull()?.value ?: item.summary,
+                seed = item.seeds.takeIf { it.isNotBlank() },
+                values = item.values,
+                status = "done",
+                taskId = item.id.takeIf { id -> container.generationManager.tasks.value.any { it.taskId == id } },
+                resultPath = path,
+            )
+            if (container.projectStore.attachExistingTake(projectId, shotId, take)) {
+                _linkedResult.value = LinkedResult(projectId, AppStrings.get(R.string.studio_history_take_added))
+            } else {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "already linked, active shot or save failed")
+            }
+        }
+    }
+
+    /** Reuse a rendered local video/audio as a timeline clip without copying or rewriting it. */
+    fun addToProjectTimeline(projectId: String, item: HistoryItem, path: String) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val kind = ProjectMediaLinks.track(path)
+            val file = File(path)
+            if (kind == null || !file.isFile || !file.canRead() ||
+                container.projectStore.project(projectId) == null) {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "media unavailable")
+                return@launch
+            }
+            val duration = runCatching {
+                val retriever = MediaMetadataRetriever()
+                try {
+                    retriever.setDataSource(path)
+                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                } finally {
+                    retriever.release()
+                }
+            }.getOrNull()
+            if (duration == null || duration <= 0L) {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "cannot read duration")
+                return@launch
+            }
+            val clip = TimelineClip(
+                sourcePath = path,
+                sourceLabel = item.wfName,
+                sourceOutMs = duration,
+            )
+            if (container.projectStore.addClip(projectId, kind, clip)) {
+                _linkedResult.value = LinkedResult(projectId, AppStrings.get(R.string.studio_history_timeline_added))
+            } else {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, "could not save timeline")
+            }
+        }
+    }
 
     fun addToProject(projectId: String, role: ReferenceRole, path: String, label: String) {
         viewModelScope.launch(Dispatchers.IO) {
