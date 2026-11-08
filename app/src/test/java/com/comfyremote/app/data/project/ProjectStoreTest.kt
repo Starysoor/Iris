@@ -119,6 +119,24 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun directorPlanAppliesAsOneValidatedLocalOperationWithoutPaidTask() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        assertTrue(store.addPlannedShots(project.id, listOf(
+            ProjectShot(prompt = "one", plannedDurationSeconds = 10),
+            ProjectShot(prompt = "two", cameraNotes = "push in", plannedDurationSeconds = 12),
+        )))
+        assertEquals(listOf(10, 12), store.project(project.id)!!.shots.map { it.plannedDurationSeconds })
+        assertEquals(listOf("draft", "draft"), store.project(project.id)!!.shots.map { it.status })
+        assertTrue(store.project(project.id)!!.shots.all { it.taskId == null && it.takes.isEmpty() })
+        assertFalse(store.addPlannedShots(project.id, listOf(
+            ProjectShot(prompt = "not persisted"),
+            ProjectShot(prompt = " "),
+        )))
+        assertEquals(2, ProjectStore(File(temp.root, "projects.json")).projects.value.single().shots.size)
+    }
+
+    @Test
     fun nextShotWaitsForAnEarlierRunningShot() {
         val store = store()
         val project = store.create("Studio", "wf")!!
