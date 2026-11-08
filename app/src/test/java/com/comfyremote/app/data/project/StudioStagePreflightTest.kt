@@ -97,6 +97,23 @@ class StudioStagePreflightTest {
     }
 
     @Test
+    fun providerDefaultMediaIsNotReportedAsUnfilledProjectSlot() {
+        val report = StudioStagePreflight.inspect(
+            workflow(rules = listOf(
+                CloudInputRule("first_frame", "image", required = true,
+                    defaultValue = "https://provider.example/known-input.jpg"),
+                CloudInputRule("second_frame", "image", required = true,
+                    defaultValue = "default_local_path:unusable"),
+            )),
+            "video",
+            emptyList(),
+        )
+        assertEquals(listOf("second_frame"), report.potentialMissingMediaSlots)
+        assertTrue(report.inputs.first().defaultProvided)
+        assertFalse(report.inputs[1].defaultProvided)
+    }
+
+    @Test
     fun unknownRequiredRuleIsBlockedButOptionalUnrecognizedRuleIsInformational() {
         val spec = workflow(rules = listOf(
             CloudInputRule("required_hex_mesh", "mesh", required = true),
