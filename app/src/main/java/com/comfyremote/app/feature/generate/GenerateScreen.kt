@@ -59,8 +59,10 @@ fun GenerateScreen(
     onBack: () -> Unit,
     onOpenTask: (String) -> Unit,
     onOpenCloudVideo: (String, String) -> Unit,
+    onOpenProject: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val linkedShot by viewModel.linkedShot.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val appSettings = LocalAppSettings.current
     val draft = state.draft
@@ -190,6 +192,17 @@ fun GenerateScreen(
                     contentPadding = PaddingValues(horizontal = Spacing.gutter, vertical = Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(if (appSettings.compactUi) Spacing.sm else Spacing.md),
                 ) {
+                    linkedShot?.let { linked ->
+                        item("studio-linked") {
+                            InfoBanner(
+                                title = stringResource(R.string.studio_linked_title, linked.projectTitle, linked.shotNumber),
+                                text = stringResource(R.string.studio_linked_detail),
+                                tone = BannerTone.Info,
+                                actionLabel = stringResource(R.string.studio_back_to_project),
+                                onAction = { onOpenProject(linked.projectId) },
+                            )
+                        }
+                    }
                     task?.let { t -> item("status") { GenerationStatusCard(t, running) } }
                     state.insight?.let { insight ->
                         item("workflow-insight") {
