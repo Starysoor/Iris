@@ -1,0 +1,191 @@
+name: Iris v2.4.0-beta.1 · signed device test prerelease
+
+on:
+  push:
+    branches:
+      - 'release/v2.4.0-beta.1'
+    paths:
+      - 'app/**'
+      - 'docs/releases/v2.4.0-beta.1.md'
+      - 'CHANGELOG.md'
+      - '.github/workflows/beta-release.yml'
+
+concurrency:
+  group: iris-v2.4.0-beta.1-publish
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Assert exact beta identity
+        run: |
+          test "$GITHUB_REF" = 'refs/heads/release/v2.4.0-beta.1'
+          grep -Eq 'versionCode = 29$' app/build.gradle.kts
+          grep -Fq 'versionName = "2.4.0-beta.1"' app/build.gradle.kts
+          test -s docs/releases/v2.4.0-beta.1.md
+      - name: JVM regressions
+        run: gradle :app:testDebugUnitTest --no-daemon
+      - name: Debug APK
+        run: gradle :app:assembleDebug --no-daemon
+      - name: Android lint
+        run: gradle :app:lintDebug --no-daemon
+
+  emulator:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: api29-phone
+            api-level: 29
+            profile: pixel_3a
+          - label: api34-phone
+            api-level: 34
+            profile: pixel_3a
+          - label: api34-tablet
+            api-level: 34
+            profile: pixel_tablet
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Install media fixtures
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y ffmpeg
+      - name: Build debug and instrumented APKs
+        run: gradle :app:assembleDebug :app:assembleDebugAndroidTest --no-daemon
+      - name: Enable Android emulator KVM
+        run: |
+          echo 'KERNEL=="kvm", GROUP="kvm", MODE="0666", OPTIONS+="static_node=kvm"' | sudo tee /etc/udev/rules.d/99-kvm4all.rules
+          sudo udevadm control --reload-rules
+          sudo udevadm trigger --name-match=kvm
+      - name: Real Media3 export and app lifecycle smoke
+        uses: reactivecircus/android-emulator-runner@v2
+        with:
+          api-level: ${{ matrix.api-level }}
+          target: google_apis
+          arch: x86_64
+          profile: ${{ matrix.profile }}
+          ram-size: 2048M
+          emulator-options: -no-window -gpu swiftshader_indirect -no-snapshot -noaudio -no-boot-anim -camera-back none
+          script: bash tools/qa_emulator_smoke.sh
+      - name: Preserve emulator evidence
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-beta-emulator-${{ matrix.label }}-${{ github.sha }}
+          path: tools/qa-screens/
+          if-no-files-found: warn
+          retention-days: 14
+
+  publish:
+    needs: [verify, emulator]
+    if: github.ref == 'refs/heads/release/v2.4.0-beta.1'
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    permissions:
+      contents: write
+    env:
+      BETA_TAG: v2.4.0-beta.1
+      APK_NAME: Iris-v2.4.0-beta.1.apk
+      KEYSTORE_B64: ${{ secrets.KEYSTORE_B64 }}
+      KS_PASS: ${{ secrets.KS_PASS }}
+      KS_ALIAS: ${{ secrets.KS_ALIAS }}
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+      - uses: gradle/actions/setup-gradle@v4
+        with:
+          gradle-version: '8.7'
+      - name: Validate release branch, metadata, secrets and tag uniqueness
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$GITHUB_REF" = 'refs/heads/release/v2.4.0-beta.1'
+          grep -Eq 'versionCode = 29$' app/build.gradle.kts
+          grep -Fq 'versionName = "2.4.0-beta.1"' app/build.gradle.kts
+          test -s docs/releases/v2.4.0-beta.1.md
+          test -n "$KEYSTORE_B64"
+          test -n "$KS_PASS"
+          test -n "$KS_ALIAS"
+          if gh release view "$BETA_TAG" >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing GitHub Release $BETA_TAG" >&2
+            exit 1
+          fi
+          if gh api "repos/$GITHUB_REPOSITORY/git/ref/tags/$BETA_TAG" >/dev/null 2>&1; then
+            echo "Refusing to reuse existing tag $BETA_TAG" >&2
+            exit 1
+          fi
+      - name: Restore SAME signed-release keystore as production releases
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p keystore
+          printf '%s' "$KEYSTORE_B64" | base64 -d > keystore/comfyremote.jks
+          test -s keystore/comfyremote.jks
+          printf 'storeFile=keystore/comfyremote.jks\nstorePassword=%s\nkeyAlias=%s\nkeyPassword=%s\n' \
+            "$KS_PASS" "$KS_ALIAS" "$KS_PASS" > keystore.properties
+      - name: Build signed release APK
+        run: gradle :app:assembleRelease --no-daemon
+      - name: Verify signature, installable metadata and produce SHA-256
+        shell: bash
+        run: |
+          set -euo pipefail
+          apk='app/build/outputs/apk/release/app-release.apk'
+          out="app/build/outputs/apk/release/$APK_NAME"
+          test -s "$apk"
+          aapt=$(find "$ANDROID_HOME/build-tools" -type f -name aapt | sort -V | tail -n1)
+          apksigner=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)
+          test -x "$aapt"
+          test -x "$apksigner"
+          badging=$("$aapt" dump badging "$apk" | head -n1)
+          printf '%s\n' "$badging"
+          printf '%s\n' "$badging" | grep -F "name='com.comfyremote.app'"
+          printf '%s\n' "$badging" | grep -F "versionName='2.4.0-beta.1'"
+          printf '%s\n' "$badging" | grep -F "versionCode='29'"
+          "$apksigner" verify --verbose --print-certs "$apk"
+          cp "$apk" "$out"
+          (cd "$(dirname "$out")" && sha256sum "$APK_NAME" > "$APK_NAME.sha256")
+      - name: Publish as explicit pre-release, never GitHub Latest
+        shell: bash
+        run: |
+          set -euo pipefail
+          gh release create "$BETA_TAG" \
+            "app/build/outputs/apk/release/$APK_NAME" \
+            "app/build/outputs/apk/release/$APK_NAME.sha256" \
+            --repo "$GITHUB_REPOSITORY" \
+            --target "$GITHUB_SHA" \
+            --title "Iris v2.4.0-beta.1 · Android 真机测试版" \
+            --notes-file docs/releases/v2.4.0-beta.1.md \
+            --prerelease \
+            --latest=false
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$BETA_TAG" \
+            --jq '.prerelease' | grep -qx true
+          gh api "repos/$GITHUB_REPOSITORY/releases/tags/$BETA_TAG" \
+            --jq '[.assets[].name] | index("Iris-v2.4.0-beta.1.apk") != null' | grep -qx true
+          echo "## Iris beta device test released" >> "$GITHUB_STEP_SUMMARY"
+          echo "https://github.com/$GITHUB_REPOSITORY/releases/tag/$BETA_TAG" >> "$GITHUB_STEP_SUMMARY"
