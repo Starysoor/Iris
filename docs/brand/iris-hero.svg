@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1600" height="520" viewBox="0 0 1600 520" role="img" aria-labelledby="heroTitle heroDesc">
+<title id="heroTitle">Iris — One lens. Every model.</title>
+<desc id="heroDesc">Dark blue Iris identity banner with violet and cyan luminous aperture rings.</desc>
+<defs>
+<linearGradient id="bg" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#09101f"/><stop offset=".48" stop-color="#0c1229"/><stop offset="1" stop-color="#110d28"/></linearGradient>
+<linearGradient id="light" x1="0" y1="0" x2="1" y2=".8"><stop stop-color="#a7d8ff"/><stop offset=".48" stop-color="#a1a8ff"/><stop offset="1" stop-color="#d59bfa"/></linearGradient>
+<linearGradient id="orb" x1="0" y1="0" x2="1" y2="1"><stop stop-color="#93d5fa"/><stop offset=".48" stop-color="#7d8ffb"/><stop offset="1" stop-color="#c79bf3"/></linearGradient>
+<radialGradient id="halo"><stop stop-color="#7d8df5" stop-opacity=".28"/><stop offset=".55" stop-color="#7085fa" stop-opacity=".09"/><stop offset="1" stop-color="#7186fa" stop-opacity="0"/></radialGradient>
+<pattern id="grid" width="48" height="48" patternUnits="userSpaceOnUse"><path d="M48 0H0V48" fill="none" stroke="#d8e3ff" stroke-opacity=".038"/></pattern>
+<filter id="glow"><feGaussianBlur stdDeviation="18"/></filter><filter id="soft"><feGaussianBlur stdDeviation="5"/></filter>
+<clipPath id="crop"><rect width="1600" height="520" rx="36"/></clipPath>
+</defs>
+<g clip-path="url(#crop)">
+<rect width="1600" height="520" fill="url(#bg)"/><rect width="1600" height="520" fill="url(#grid)"/>
+<circle cx="1260" cy="260" r="430" fill="url(#halo)"/>
+<path d="M60 460C360 345 620 510 850 365S1240 235 1570 80" fill="none" stroke="#a5beff" stroke-opacity=".08" stroke-width="2"/>
+<path d="M15 495C265 390 615 520 820 410S1245 275 1540 135" fill="none" stroke="#a5beff" stroke-opacity=".065" stroke-width="1.5"/>
+<g transform="translate(1235 257)">
+<circle r="215" fill="none" stroke="#a3a3f3" stroke-opacity=".13" stroke-dasharray="2 12"/>
+<circle r="172" fill="none" stroke="url(#light)" stroke-opacity=".28" stroke-width="1.5"/>
+<circle r="141" fill="none" stroke="#9fbaff" stroke-opacity=".23"/>
+<g transform="rotate(-16)">
+<ellipse rx="174" ry="102" fill="none" stroke="url(#orb)" stroke-opacity=".53" stroke-width="5" filter="url(#soft)"/>
+<ellipse rx="175" ry="103" fill="none" stroke="url(#light)" stroke-width="2.4"/>
+<ellipse rx="156" ry="81" fill="none" stroke="#bacafc" stroke-opacity=".24"/>
+</g>
+<circle r="110" fill="#7983de" opacity=".20" filter="url(#glow)"/>
+<circle r="106" fill="#080d26" stroke="url(#orb)" stroke-width="8"/>
+<circle r="88" fill="#0b1530" stroke="#bec8ff" stroke-opacity=".28" stroke-width="2"/>
+<circle r="53" fill="#0a1029" stroke="#bfcdff" stroke-opacity=".55" stroke-width="1.4"/>
+<circle r="24" fill="url(#light)" opacity=".93" filter="url(#soft)"/>
+<circle r="14" fill="#e6f5ff"/>
+<circle cx="-36" cy="-41" r="12" fill="#d0e6ff" opacity=".45" filter="url(#soft)"/>
+<g stroke="#91a4fa" stroke-opacity=".63" stroke-width="1.6">
+<path d="M0-174V-215M0 174V215M-174 0H-216M174 0H216"/>
+<path d="M-121-121l-26-26M121-121l26-26M-121 121l-26 26M121 121l26 26" opacity=".65"/>
+</g>
+<path d="M-191-56A199 199 0 0 1 -100-174" fill="none" stroke="#b2ddff" stroke-width="5" stroke-linecap="round" opacity=".78"/>
+<path d="M193 50A199 199 0 0 1 114 166" fill="none" stroke="#d4a1ff" stroke-width="5" stroke-linecap="round" opacity=".78"/>
+</g>
+<g font-family="Inter, Segoe UI, Helvetica, Arial, sans-serif">
+<text x="91" y="87" fill="#a4b3d5" font-size="19" font-weight="650" letter-spacing="5">THE AI CREATION WORKSPACE</text>
+<text x="82" y="292" fill="url(#light)" font-size="206" font-weight="750" letter-spacing="-17">IRIS</text>
+<text x="92" y="359" fill="#e9eafb" font-size="29" font-weight="620" letter-spacing="4">ONE LENS. EVERY MODEL.</text>
+<text x="93" y="404" fill="#a8b2d1" font-size="22">Create across local ComfyUI and the cloud — from your Android device.</text>
+<g font-size="15" font-weight="600" letter-spacing="1.8">
+<rect x="92" y="439" width="173" height="42" rx="21" fill="#9eacfa" fill-opacity=".11" stroke="#a8b4fc" stroke-opacity=".35"/>
+<text x="115" y="466" fill="#c8d0ff">LOCAL + CLOUD</text>
+<rect x="280" y="439" width="113" height="42" rx="21" fill="#9eacfa" fill-opacity=".11" stroke="#a8b4fc" stroke-opacity=".35"/>
+<text x="307" y="466" fill="#c8d0ff">STUDIO</text>
+<rect x="407" y="439" width="126" height="42" rx="21" fill="#9eacfa" fill-opacity=".11" stroke="#a8b4fc" stroke-opacity=".35"/>
+<text x="431" y="466" fill="#c8d0ff">ANDROID</text>
+</g></g></g>
+</svg>
