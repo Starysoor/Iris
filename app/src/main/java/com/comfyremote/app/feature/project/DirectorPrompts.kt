@@ -97,7 +97,7 @@ object DirectorPrompts {
         val secondsEach = remaining?.let { (it + suggestedCount - 1) / suggestedCount }
         appendLine("已规划镜头叙事时长约 ${planned} 秒；本次剩余目标时长 ${remaining ?: "未设置"} 秒。")
         appendLine("请规划 $suggestedCount 个新镜头。" +
-            (if (secondsEach != null && remaining > 0) " 平均叙事时长约 ${secondsEach} 秒，请考虑模型单段时长及续接。" else ""))
+            (if (secondsEach != null && remaining != null && remaining > 0) " 平均叙事时长约 ${secondsEach} 秒，请考虑模型单段时长及续接。" else ""))
     }
 
     /**
