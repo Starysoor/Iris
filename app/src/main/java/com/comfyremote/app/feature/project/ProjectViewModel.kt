@@ -192,7 +192,10 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         container.draftTransferRepository.put(DraftTransfer(
             workflowPath = path,
             workflowName = name,
-            values = if (kind == "video") project.defaultValues else emptyMap(),
+            // Only inherit field-keyed defaults when the actual workflow matches.
+            // Cross-provider keys must be re-entered through the validated Create form.
+            values = if (kind == "video" && path == project.workflowPath) project.defaultValues
+                else emptyMap(),
             randomSeed = true,
             storyboardProjectId = projectId,
             storyboardShotId = null,
