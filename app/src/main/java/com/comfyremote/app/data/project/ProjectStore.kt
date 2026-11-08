@@ -393,6 +393,7 @@ class ProjectStore internal constructor(private val file: File) {
             project.copy(
                 assets = remaining,
                 profiles = profiles,
+                stageMediaBindings = project.stageMediaBindings.filterNot { it.assetId == assetId },
                 shots = rebaseAutoReferences(cleaned, project.chainFrames),
                 updatedAt = System.currentTimeMillis(),
             )
