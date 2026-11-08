@@ -220,18 +220,18 @@ class ProjectStore internal constructor(private val file: File) {
             ) return@synchronized false
             updateLocked(projectId) { project ->
                 project.copy(
-                    shots = project.shots + suggested.map { shot ->
-                        shot.copy(
-                            id = UUID.randomUUID().toString(),
-                            prompt = shot.prompt.trim(),
-                            status = "draft",
-                            taskId = null,
-                            resultPath = null,
-                            error = null,
-                            takes = emptyList(),
-                            selectedTakeId = null,
-                        )
-                    },
+                    // Only safe creative fields cross from AI proposals. Keep automatic
+                    // previous-shot tail-frame relay identical to normal addShot().
+                    shots = rebaseAutoReferences(
+                        project.shots + suggested.map { shot ->
+                            ProjectShot(
+                                prompt = shot.prompt.trim(),
+                                cameraNotes = shot.cameraNotes?.trim()?.ifBlank { null },
+                                plannedDurationSeconds = shot.plannedDurationSeconds,
+                            )
+                        },
+                        project.chainFrames,
+                    ),
                     updatedAt = System.currentTimeMillis(),
                 )
             }
