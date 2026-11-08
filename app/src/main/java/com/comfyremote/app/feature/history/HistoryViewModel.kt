@@ -135,8 +135,16 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch(Dispatchers.IO) {
             runCatching { container.projectAssetStore.importFile(path, role, label) }
                 .onSuccess { asset ->
-                    container.projectStore.addAsset(projectId, asset)
-                    _message.value = AppStrings.get(R.string.history_msg_added_to_project)
+                    if (container.projectStore.addAsset(projectId, asset)) {
+                        _linkedResult.value = LinkedResult(
+                            projectId, AppStrings.get(R.string.history_msg_added_to_project),
+                        )
+                    } else {
+                        // Only the freshly imported private copy is unreferenced;
+                        // never remove the original History result on failed index writes.
+                        File(asset.path).delete()
+                        _message.value = AppStrings.get(R.string.studio_history_import_failed, "project index save failed")
+                    }
                 }
                 .onFailure { e ->
                     _message.value = AppStrings.get(R.string.history_msg_add_project_failed, e.message ?: "error")
