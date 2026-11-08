@@ -58,6 +58,10 @@ class StudioStageMediaBindingsTest {
         assertFalse(StudioStageMediaBindings.accepts(inputs[0], projectAssets[1]))
         assertFalse(StudioStageMediaBindings.accepts(inputs[0], projectAssets[2]))
         assertFalse(StudioStageMediaBindings.accepts(inputs[3], projectAssets[0]))
+        assertFalse(StudioStageMediaBindings.accepts(inputs[0],
+            projectAssets[0].copy(path = "/assets/unknown.zip")))
+        assertFalse(StudioStageMediaBindings.accepts(inputs[2],
+            projectAssets[2].copy(path = "/assets/not-audio.mp4")))
     }
 
     @Test fun failsClosedOnStaleMissingUnreadableOrWrongProviderBindings() {
