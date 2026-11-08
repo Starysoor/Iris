@@ -153,6 +153,7 @@ data class LinkedStudioShot(
 class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     private val _linkedShot = MutableStateFlow<LinkedStudioShot?>(null)
     val linkedShot: StateFlow<LinkedStudioShot?> = _linkedShot.asStateFlow()
+    val projects = container.projectStore.projects
     private val appSettings = container.appSettingsStore.settings.value
     private val _state = MutableStateFlow(
         GenerateUiState(
@@ -303,6 +304,38 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 .onFailure { e ->
                     _state.update { it.copy(loading = false, error = e.message ?: "error") }
                 }
+        }
+    }
+
+    /**
+     * Optional Create→Studio association. Provider image/audio/local custom workflows
+     * may be linked to a project, but only catalog-confirmed video workflows may
+     * bind directly to a Shot; other media must flow through Results verification.
+     */
+    fun linkCurrentDraft(projectId: String?, shotId: String?) {
+        val draft = _state.value.draft ?: return
+        val active = _state.value.activeTaskId?.let { id -> tasks.value.firstOrNull { it.taskId == id } }
+        if (active?.isActive == true) return
+        if (projectId == null) {
+            pendingStoryboardProjectId = null
+            pendingStoryboardShotId = null
+            _linkedShot.value = null
+            _state.update { it.copy(storyboardShot = false) }
+            return
+        }
+        val project = container.projectStore.project(projectId) ?: return
+        val index = if (shotId != null) project.shots.indexOfFirst { it.id == shotId } else -1
+        if (shotId != null && (draft.cloud?.kind != "video" || index < 0 ||
+                project.shots[index].status == "running")) {
+            _state.update { it.copy(message = AppStrings.get(R.string.board_err_choose_workflow)) }
+            return
+        }
+        pendingStoryboardProjectId = projectId
+        pendingStoryboardShotId = shotId
+        _linkedShot.value = LinkedStudioShot(projectId, project.title, index + 1)
+        _state.update { current ->
+            current.copy(storyboardShot = shotId != null,
+                batchCount = if (shotId != null) 1 else current.batchCount)
         }
     }
 
