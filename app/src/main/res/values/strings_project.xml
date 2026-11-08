@@ -28,6 +28,7 @@
 
     <!-- Asset library -->
     <string name="proj_assets_manage">Manage</string>
+    <string name="proj_assets_disk_usage">Linked project assets: about %1$d MiB (unique files)</string>
     <string name="proj_assets_title">Project assets</string>
     <string name="proj_assets_empty_hint">Import images, videos or audio. Tag them and bundle them into character/scene profiles for reuse across shots.</string>
     <string name="proj_asset_kind_all">All</string>
