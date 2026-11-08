@@ -209,7 +209,11 @@ private fun AppNavHost(
             }
             composable(Routes.HISTORY) {
                 val vm: HistoryViewModel = viewModel(factory = factory)
-                HistoryScreen(vm, onReuse = ::openTransfer)
+                HistoryScreen(
+                    vm,
+                    onReuse = ::openTransfer,
+                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                )
             }
             composable(Routes.PROJECTS) {
                 val vm: ProjectViewModel = viewModel(factory = factory)
