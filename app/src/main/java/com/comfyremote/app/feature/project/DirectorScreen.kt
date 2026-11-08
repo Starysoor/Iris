@@ -20,8 +20,10 @@ import androidx.compose.material3.Checkbox
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
@@ -69,6 +71,7 @@ fun DirectorScreen(
     val continuity by viewModel.continuity.collectAsState()
     val planState by viewModel.planState.collectAsState()
     LaunchedEffect(projectId) { viewModel.loadContinuity(projectId) }
+    DisposableEffect(viewModel) { onDispose { viewModel.clearContinuity() } }
 
     IrisScaffold(
         snackbarHostState = snackbar,
@@ -140,6 +143,29 @@ fun DirectorScreen(
             }
             item("continuity-heading") {
                 SectionTitle(stringResource(R.string.proj_director_continuity))
+            }
+            if (continuity.pageCount > 1 && !continuity.loading) {
+                item("continuity-pagination") {
+                    Row(
+                        Modifier.fillMaxWidth(),
+                        verticalAlignment = Alignment.CenterVertically,
+                        horizontalArrangement = Arrangement.SpaceBetween,
+                    ) {
+                        TextButton(
+                            onClick = { viewModel.loadContinuity(projectId, continuity.pageIndex - 1) },
+                            enabled = continuity.pageIndex > 0,
+                        ) { Text(stringResource(R.string.proj_director_page_previous)) }
+                        Text(
+                            stringResource(R.string.proj_director_page_count,
+                                continuity.pageIndex + 1, continuity.pageCount),
+                            style = IrisType.metaSmall,
+                        )
+                        TextButton(
+                            onClick = { viewModel.loadContinuity(projectId, continuity.pageIndex + 1) },
+                            enabled = continuity.pageIndex < continuity.pageCount - 1,
+                        ) { Text(stringResource(R.string.proj_director_page_next)) }
+                    }
+                }
             }
             if (continuity.loading) {
                 item("continuity-loading") {
