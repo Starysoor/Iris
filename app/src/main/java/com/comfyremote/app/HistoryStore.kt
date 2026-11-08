@@ -69,7 +69,7 @@ class HistoryStore(
      */
     internal fun cleanupAbandonedStudioExports(now: Long = System.currentTimeMillis()): Int {
         val threshold = now - STUDIO_TMP_GRACE_MS
-        val pattern = Regex("""project-export-\\d{10,20}_\\d+\\.mp4\\.tmp""")
+        val pattern = Regex("""project-export-\d{10,20}_\d+\.mp4\.tmp""")
         return dir.listFiles()?.count { candidate ->
             candidate.isFile && !Files.isSymbolicLink(candidate.toPath()) &&
                 pattern.matches(candidate.name) && candidate.lastModified() < threshold &&
@@ -293,5 +293,6 @@ class HistoryStore(
     companion object {
         private const val MAX_ITEMS = 200
         private const val PRUNE_GRACE_MS = 60 * 60_000L
+        private const val STUDIO_TMP_GRACE_MS = 10 * 60_000L
     }
 }
