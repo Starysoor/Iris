@@ -145,4 +145,5 @@
     <string name="studio_contract_inventory">Project asset candidates with matching type and role: %1$d (not yet mapped)</string>
     <string name="studio_contract_bounds">Allowed range: %1$s to %2$s (provider rule)</string>
     <string name="studio_contract_options">Supported options: %1$s</string>
+    <string name="studio_contract_shortfall">Not enough distinct matching project files for these required slots: %1$s. Import more media or upload directly in Create.</string>
 </resources>
