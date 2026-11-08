@@ -129,4 +129,19 @@
     <string name="studio_link_project_level">只关联到该项目</string>
     <string name="studio_link_shot">关联第 %1$d 镜头</string>
     <string name="studio_shot_planned_seconds">计划叙事时长：%1$d 秒</string>
+    <!-- #101 actual provider schema preflight -->
+    <string name="studio_contract_inspect">检查输入</string>
+    <string name="studio_contract_title">服务商输入能力检查</string>
+    <string name="studio_contract_loading">正在读取服务商真实输入字段…</string>
+    <string name="studio_contract_failed">无法检查模型输入契约：%1$s</string>
+    <string name="studio_contract_safe_hint">这是只读预检。项目素材仅为候选，不会自动映射或上传。提交前必须在创作页核对必填参数及实际费用。</string>
+    <string name="studio_contract_summary">图像输入位：%1$d（必填 %2$d）；音频输入位：%3$d（必填 %4$d）。</string>
+    <string name="studio_contract_unknown_price">费用：服务商未提供可核实的计价信息</string>
+    <string name="studio_contract_configurable">当前字段可在创作页配置，但不代表素材已绑定。</string>
+    <string name="studio_contract_unknown">服务商未返回有效输入规则，暂时无法验证能力。</string>
+    <string name="studio_contract_blocked">包含当前应用无法编辑的必填字段，或输出类型不符：%1$s</string>
+    <string name="studio_contract_required">必填</string>
+    <string name="studio_contract_inventory">项目内类型及用途相符的候选素材：%1$d（尚未映射）</string>
+    <string name="studio_contract_bounds">允许范围：%1$s 至 %2$s（服务商声明）</string>
+    <string name="studio_contract_options">可选值：%1$s</string>
 </resources>
