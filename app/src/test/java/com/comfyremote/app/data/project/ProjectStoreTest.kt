@@ -137,6 +137,27 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun recipeAndIndependentStageModelsDoNotOverwriteShotOrGenerate() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "scene")!!
+        assertTrue(store.setWorkflowRecipe(project.id, StudioWorkflowRecipes.KEYFRAMES_AND_AUDIO))
+        assertTrue(store.setStageWorkflow(project.id, "image", "autodl:graphic"))
+        assertTrue(store.setStageWorkflow(project.id, "video", "replicate:video"))
+        assertTrue(store.setStageWorkflow(project.id, "audio", "autodl:audio"))
+        assertFalse(store.setStageWorkflow(project.id, "exe", "invalid"))
+        assertFalse(store.setWorkflowRecipe(project.id, "not-a-template"))
+        val saved = ProjectStore(File(temp.root, "projects.json")).projects.value.single()
+        assertEquals(StudioWorkflowRecipes.KEYFRAMES_AND_AUDIO, saved.workflowRecipeId)
+        assertEquals(3, saved.stageWorkflowPaths.size)
+        val untouched = saved.shots.single()
+        assertEquals(shot.id, untouched.id)
+        assertEquals("draft", untouched.status)
+        assertTrue(untouched.takes.isEmpty())
+        assertNull(untouched.taskId)
+    }
+
+    @Test
     fun nextShotWaitsForAnEarlierRunningShot() {
         val store = store()
         val project = store.create("Studio", "wf")!!
