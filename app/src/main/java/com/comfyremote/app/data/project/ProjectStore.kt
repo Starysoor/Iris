@@ -449,6 +449,36 @@ class ProjectStore internal constructor(private val file: File) {
             attached && persisted
         }
 
+    /**
+     * Link an existing History-owned video to a shot as a *candidate*, not as the
+     * primary take. It must never interrupt an active remote task or silently
+     * replace a selected take or a previously arranged timeline clip.
+     *
+     * The underlying HistoryStore's referenced-path guard keeps the media alive
+     * while this Take refers to it. Repeated actions are idempotent by media path.
+     */
+    fun attachExistingTake(projectId: String, shotId: String, source: ShotTake): Boolean =
+        synchronized(lock) {
+            val path = source.resultPath
+            if (source.status != "done" || path.isNullOrBlank()) return@synchronized false
+            var added = false
+            val persisted = updateLocked(projectId) { project ->
+                val shots = project.shots.map { shot ->
+                    if (shot.id != shotId || shot.status == "running" ||
+                        shot.takes.any { it.resultPath == path }) return@map shot
+                    added = true
+                    shot.copy(takes = shot.takes + source.copy(
+                        id = UUID.randomUUID().toString(),
+                        status = "done",
+                        resultPath = path,
+                        createdAt = System.currentTimeMillis(),
+                    ))
+                }
+                project.copy(shots = shots, updatedAt = System.currentTimeMillis())
+            }
+            added && persisted
+        }
+
     /** Marks the shot done and closes the matching running take with the result. */
     fun markDone(projectId: String, shotId: String, resultPath: String, lastFramePath: String?): Boolean =
         synchronized(lock) {
