@@ -51,6 +51,7 @@ data class ProjectWorkflowOption(
 /** Studio-side ViewModel: projects, shots, assets and generation-task sync. */
 class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val projects: StateFlow<List<VideoProject>> = container.projectStore.projects
+    val projectLoadError: StateFlow<String?> = container.projectStore.loadError
 
     /** Read-only engine feed for the in-project task view; submission stays on the create page. */
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
