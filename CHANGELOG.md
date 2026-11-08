@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0-beta.1 — device-validation pre-release (2026-11-08)
+
+**Test build only — not the stable v2.4.0 release.** Signed Android release candidate `versionCode 29` on a dedicated branch; stable v2.3.2 remains unchanged. See [device-test checklist](docs/releases/v2.4.0-beta.1.md).
+
+- Studio project-driven editing, reference assets, Shot/Take choices, sequence timeline, AI director advice and export workflows are available for device validation.
+- Source sound plus a separate audio track mixed into MP4 using Media3; preview renders a temporary MP4 through the same export plan.
+- Protect Studio and Results indexes against corrupted JSON; reject unsafe writes, preserve media and show recovery warnings.
+- Fix stale Provider catalogue refreshes and ExoPlayer instance lifecycle; clean aged orphan MP4 export temporary files without deleting active source media.
+- Bound director continuity thumbnail memory by pagination; expand streamed media import size limits by media kind with dedicated regression tests.
+- Latest main-head Test, Android lint, Debug/Release builds, and API29/API34 emulator matrix green. Physical-device HW encoder, sharing, Tailscale and 120-second end-to-end test still require user acceptance.
+
 ## Unreleased — Iris Studio issue hardening (PR #90)
 
 - Protect Take result files still owned by History and by the legacy storyboard rollback index; block active-task Take deletion and stale task-result overwrites; resolve out-of-order tail-frame selection.
