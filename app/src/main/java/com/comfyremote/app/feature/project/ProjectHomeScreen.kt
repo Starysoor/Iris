@@ -88,6 +88,7 @@ fun ProjectHomeScreen(
     val projects by viewModel.projects.collectAsState()
     val workflows by viewModel.workflows.collectAsState()
     val stageWorkflows by viewModel.stageWorkflows.collectAsState()
+    val stageInspection by viewModel.stageInspection.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val message by viewModel.message.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
@@ -185,6 +186,8 @@ fun ProjectHomeScreen(
                 StudioRecipeCard(
                     project = project,
                     models = stageWorkflows,
+                    inspection = stageInspection,
+                    onInspectStage = { kind, path -> viewModel.inspectStage(project.id, kind, path) },
                     onChooseRecipe = { viewModel.setWorkflowRecipe(project.id, it) },
                     onChooseModel = { kind, path -> viewModel.setStageWorkflow(project.id, kind, path) },
                     onRunStage = { kind ->

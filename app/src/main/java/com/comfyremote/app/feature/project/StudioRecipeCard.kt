@@ -21,6 +21,7 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.StudioWorkflowRecipes
+import com.comfyremote.app.data.project.StudioStagePreflight
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.IrisCard
@@ -35,6 +36,8 @@ import com.comfyremote.app.ui.components.TextAction
 internal fun StudioRecipeCard(
     project: VideoProject,
     models: List<ProjectWorkflowOption>,
+    inspection: ProjectViewModel.StageInspection,
+    onInspectStage: (String, String) -> Unit,
     onChooseRecipe: (String) -> Unit,
     onChooseModel: (String, String) -> Unit,
     onRunStage: (String) -> Unit,
@@ -45,6 +48,7 @@ internal fun StudioRecipeCard(
 ) {
     var recipePicker by remember { mutableStateOf(false) }
     var modelKind by remember { mutableStateOf<String?>(null) }
+    var inspectKind by remember(project.id) { mutableStateOf<String?>(null) }
     val recipe = StudioWorkflowRecipes.resolve(project.workflowRecipeId)
 
     IrisCard {
@@ -73,11 +77,22 @@ internal fun StudioRecipeCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        TextAction(
-                            text = stringResource(R.string.studio_recipe_select_model),
-                            onClick = { modelKind = kind },
-                        )
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            TextAction(
+                                text = stringResource(R.string.studio_recipe_select_model),
+                                onClick = { modelKind = kind },
+                            )
+                            if (model != null) {
+                                TextAction(
+                                    text = stringResource(R.string.studio_contract_inspect),
+                                    onClick = {
+                                        inspectKind = kind
+                                        onInspectStage(kind, path)
+                                    },
+                                )
+                            }
+                        }
                         if (model != null) {
                             TextAction(
                                 text = stringResource(R.string.studio_recipe_run_stage),
@@ -99,6 +114,57 @@ internal fun StudioRecipeCard(
             }
         }
         TextAction(stringResource(R.string.studio_recipe_browse_create), onClick = onOpenCreate)
+    }
+
+    inspectKind?.let { kind ->
+        // The contract displayed must match both this project and its current model.
+        // A late response from a previous selection cannot be presented as current.
+        val selectedPath = project.stageWorkflowPaths[kind]
+            ?.takeIf(String::isNotBlank)
+            ?: if (kind == "video") project.workflowPath else ""
+        val matched = inspection.projectId == project.id &&
+            inspection.kind == kind && inspection.workflowPath == selectedPath
+        AlertDialog(
+            onDismissRequest = { inspectKind = null },
+            title = { Text(stringResource(R.string.studio_contract_title)) },
+            text = {
+                Column(
+                    Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    when {
+                        !matched || inspection.loading -> Text(
+                            stringResource(R.string.studio_contract_loading),
+                            style = MaterialTheme.typography.bodyMedium,
+                        )
+                        inspection.error != null -> {
+                            Text(
+                                stringResource(R.string.studio_contract_failed, inspection.error),
+                                color = MaterialTheme.colorScheme.error,
+                            )
+                            Text(stringResource(R.string.studio_contract_safe_hint),
+                                style = MaterialTheme.typography.bodySmall)
+                        }
+                        inspection.report != null ->
+                            StudioContractDetails(inspection.report)
+                        else -> Text(stringResource(R.string.studio_contract_loading))
+                    }
+                }
+            },
+            confirmButton = {
+                if (matched && inspection.report?.support == StudioStagePreflight.Support.CONFIGURABLE) {
+                    TextButton(onClick = {
+                        inspectKind = null
+                        onRunStage(kind)
+                    }) { Text(stringResource(R.string.studio_recipe_run_stage)) }
+                }
+            },
+            dismissButton = {
+                TextButton(onClick = { inspectKind = null }) {
+                    Text(stringResource(R.string.action_close))
+                }
+            },
+        )
     }
 
     if (recipePicker) {
@@ -182,3 +248,82 @@ private fun stepLabel(step: StudioWorkflowRecipes.Step): String = stringResource
     StudioWorkflowRecipes.Step.AUDIO -> R.string.studio_recipe_step_audio
     StudioWorkflowRecipes.Step.TIMELINE -> R.string.studio_recipe_step_timeline
 })
+
+/** Displays only facts from the provider's detailed schema, never name guesses. */
+@Composable
+private fun StudioContractDetails(report: StudioStagePreflight.Report) {
+    Text(report.modelName, style = MaterialTheme.typography.titleSmall)
+    Text(
+        stringResource(R.string.studio_contract_summary, report.imageInputs,
+            report.requiredImageInputs, report.audioInputs, report.requiredAudioInputs),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    Text(
+        report.providerPrice ?: stringResource(R.string.studio_contract_unknown_price),
+        style = MaterialTheme.typography.bodySmall,
+    )
+    when (report.support) {
+        StudioStagePreflight.Support.CONFIGURABLE -> Text(
+            stringResource(R.string.studio_contract_configurable),
+            style = MaterialTheme.typography.bodySmall,
+        )
+        StudioStagePreflight.Support.UNKNOWN_CONTRACT -> Text(
+            stringResource(R.string.studio_contract_unknown),
+            color = MaterialTheme.colorScheme.error,
+        )
+        StudioStagePreflight.Support.REQUIRES_UNSUPPORTED_INPUT -> Text(
+            stringResource(R.string.studio_contract_blocked,
+                report.unsupportedRequired.joinToString().ifBlank {
+                    "${report.expectedKind} / ${report.providerKind}"
+                }),
+            color = MaterialTheme.colorScheme.error,
+        )
+    }
+    if (report.potentialMissingMediaSlots.isNotEmpty()) {
+        Text(
+            stringResource(
+                R.string.studio_contract_shortfall,
+                report.potentialMissingMediaSlots.joinToString(", "),
+            ),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
+    report.inputs.forEach { input ->
+        Text(
+            input.field + " · " + input.type +
+                (if (input.required) " · " + stringResource(R.string.studio_contract_required) else ""),
+            style = MaterialTheme.typography.titleSmall,
+        )
+        if (input.type in listOf("image", "audio", "video")) {
+            Text(
+                stringResource(R.string.studio_contract_inventory, input.candidateAssets),
+                style = MaterialTheme.typography.bodySmall,
+            )
+            if (input.role != com.comfyremote.app.data.reference.ReferenceRole.AUTO) {
+                Text(input.role.name, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (input.min != null || input.max != null) {
+            Text(
+                stringResource(
+                    R.string.studio_contract_bounds,
+                    input.min?.toString() ?: "?",
+                    input.max?.toString() ?: "?",
+                ),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+        if (input.options.isNotEmpty()) {
+            Text(
+                stringResource(R.string.studio_contract_options, input.options.joinToString(" / ")),
+                style = MaterialTheme.typography.bodySmall,
+            )
+        }
+    }
+    Text(
+        stringResource(R.string.studio_contract_safe_hint),
+        style = MaterialTheme.typography.bodySmall,
+        color = MaterialTheme.colorScheme.onSurfaceVariant,
+    )
+}

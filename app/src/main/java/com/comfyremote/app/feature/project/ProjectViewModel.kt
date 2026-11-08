@@ -18,6 +18,7 @@ import com.comfyremote.app.data.project.AssetProfile
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
+import com.comfyremote.app.data.project.StudioStagePreflight
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
 import com.comfyremote.app.data.project.VideoExporter
@@ -62,6 +63,70 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val workflows: StateFlow<List<ProjectWorkflowOption>> = _workflows.asStateFlow()
     private val _stageWorkflows = MutableStateFlow<List<ProjectWorkflowOption>>(emptyList())
     val stageWorkflows: StateFlow<List<ProjectWorkflowOption>> = _stageWorkflows.asStateFlow()
+
+    data class StageInspection(
+        val projectId: String = "",
+        val workflowPath: String = "",
+        val kind: String = "",
+        val loading: Boolean = false,
+        val report: StudioStagePreflight.Report? = null,
+        val error: String? = null,
+    )
+
+    private val _stageInspection = MutableStateFlow(StageInspection())
+    val stageInspection: StateFlow<StageInspection> = _stageInspection.asStateFlow()
+    private val stageInspectionVersion = AtomicLong(0)
+    private var stageInspectionJob: Job? = null
+
+    /** Inspect only real provider detail metadata. Never submits or uploads media. */
+    fun inspectStage(projectId: String, kind: String, workflowPath: String) {
+        val project = container.projectStore.project(projectId) ?: return
+        val option = _stageWorkflows.value.firstOrNull {
+            it.kind == kind && it.path == workflowPath
+        } ?: return
+        val current = stageInspectionVersion.incrementAndGet()
+        stageInspectionJob?.cancel()
+        val provider = container.cloudProviders.forPath(option.path)
+        if (provider == null || !provider.configured() ||
+            !container.cloudProviders.isEnabled(provider.id)) {
+            _stageInspection.value = StageInspection(
+                projectId = projectId,
+                workflowPath = workflowPath,
+                kind = kind,
+                error = "Provider is not configured or is disabled",
+            )
+            return
+        }
+        _stageInspection.value = StageInspection(
+            projectId = projectId,
+            workflowPath = workflowPath,
+            kind = kind,
+            loading = true,
+        )
+        stageInspectionJob = viewModelScope.launch {
+            val outcome = try {
+                Result.success(withContext(Dispatchers.IO) {
+                    StudioStagePreflight.inspect(
+                        provider.detail(option.workflowId),
+                        expectedKind = kind,
+                        projectAssets = project.assets,
+                    )
+                })
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                Result.failure(error)
+            }
+            if (!isActive || stageInspectionVersion.get() != current) return@launch
+            _stageInspection.value = StageInspection(
+                projectId = projectId,
+                workflowPath = workflowPath,
+                kind = kind,
+                report = outcome.getOrNull(),
+                error = outcome.exceptionOrNull()?.message ?: outcome.exceptionOrNull()?.javaClass?.simpleName,
+            )
+        }
+    }
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
     data class AssetImportProgress(val running: Boolean = false, val copiedBytes: Long = 0, val totalBytes: Long? = null)
