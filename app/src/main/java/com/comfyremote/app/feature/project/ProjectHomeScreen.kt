@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.project.taskCostStats
+import com.comfyremote.app.data.project.StudioJourney
 import com.comfyremote.app.feature.generate.MediaThumbnail
 import com.comfyremote.app.feature.tasks.ElapsedText
 import com.comfyremote.app.feature.tasks.RunningNodeProgress
@@ -155,6 +156,13 @@ fun ProjectHomeScreen(
             }
             item("progress") {
                 ProgressChips(project)
+            }
+            item("next-step") {
+                StudioNextStep(
+                    project = project,
+                    onOpenWorkspace = onOpenWorkspace,
+                    onOpenTimeline = onOpenTimeline,
+                )
             }
             item("workspace") {
                 IrisPrimaryButton(
@@ -396,5 +404,46 @@ private fun ProjectTaskRow(
             }
         }
         RunningNodeProgress(task)
+    }
+}
+
+/** Next action is derived from real project state; asset import is recommended, not required. */
+@Composable
+private fun StudioNextStep(
+    project: com.comfyremote.app.data.project.VideoProject,
+    onOpenWorkspace: () -> Unit,
+    onOpenTimeline: () -> Unit,
+) {
+    val progress = StudioJourney.inspect(project)
+    val nextLabel = when (progress.next) {
+        StudioJourney.NextStep.ADD_SHOTS -> R.string.studio_next_add_shots
+        StudioJourney.NextStep.GENERATE -> R.string.studio_next_generate
+        StudioJourney.NextStep.ARRANGE -> R.string.studio_next_arrange
+        StudioJourney.NextStep.REVIEW -> R.string.studio_next_review
+    }
+    IrisCard {
+        Text(stringResource(R.string.studio_progress_title), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(
+                R.string.studio_progress_detail,
+                progress.completedShots, progress.totalShots,
+                project.assets.size, progress.timelineClips,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (project.assets.isEmpty()) {
+            Text(
+                stringResource(R.string.studio_assets_optional),
+                style = IrisType.metaSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IrisTonalButton(
+            text = stringResource(nextLabel),
+            onClick = if (progress.next == StudioJourney.NextStep.ARRANGE ||
+                progress.next == StudioJourney.NextStep.REVIEW) onOpenTimeline else onOpenWorkspace,
+            icon = Icons.Outlined.Movie,
+        )
     }
 }
