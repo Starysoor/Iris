@@ -64,5 +64,15 @@ jobs:
           git add docs/verification/showcase-2026/*.png docs/verification/showcase-2026/*.xml docs/verification/showcase-2026/*.log
           if ! git diff --cached --quiet; then
             git commit -m "docs(showcase): refresh authentic emulator screenshots [skip ci]"
+            # The README/branding branch may gain documentation commits while
+            # screenshots are rendering. Rebase only; never force-push or
+            # silently overwrite other contributors' work.
+            git fetch origin docs/iris-showcase-refresh
+            if git ls-tree -r --name-only origin/docs/iris-showcase-refresh |
+               grep -q 'docs/verification/showcase-2026/01-projects-light.png'; then
+              echo "A newer screenshot gallery is already checked in"
+              exit 0
+            fi
+            git rebase origin/docs/iris-showcase-refresh
             git push origin HEAD:docs/iris-showcase-refresh
           fi
