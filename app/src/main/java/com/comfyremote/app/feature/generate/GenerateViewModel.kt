@@ -174,6 +174,8 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     private var pendingStoryboardProjectId: String? = null
     private var pendingStoryboardShotId: String? = null
     private val storyboardReferenceValuesAtLoad = mutableMapOf<String, String>()
+    /** Prevent a missing/failed explicit stage input from silently becoming a paid request. */
+    private val failedMappedFieldKeys = mutableSetOf<String>()
 
     init {
         viewModelScope.launch {
@@ -230,6 +232,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         pendingStoryboardShotId = null
         _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
+        failedMappedFieldKeys.clear()
         _state.update { it.copy(loading = true, error = null, draft = null, insight = null) }
         viewModelScope.launch {
             runCatching { buildDraft(path, name) }
@@ -290,9 +293,12 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                             message = reuseMessage,
                         )
                     }
+                    val exactFields = transfer?.referenceFieldPaths.orEmpty()
                     val multipleReferences = transfer?.referenceLocalPaths.orEmpty()
                         .filter(String::isNotBlank)
-                    if (multipleReferences.isNotEmpty()) {
+                    if (exactFields.isNotEmpty()) {
+                        applyFieldReferencePaths(exactFields, initial = storyboard)
+                    } else if (multipleReferences.isNotEmpty()) {
                         applyReferencePaths(multipleReferences, initial = storyboard)
                     } else {
                         transfer?.referenceLocalPath?.takeIf(String::isNotBlank)?.let { reference ->
@@ -320,6 +326,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             pendingStoryboardProjectId = null
             pendingStoryboardShotId = null
             _linkedShot.value = null
+            failedMappedFieldKeys.clear()
             _state.update { it.copy(storyboardShot = false) }
             return
         }
@@ -392,7 +399,10 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         ) to conv
     }
 
-    fun updateValue(key: String, value: String) = updateDraft { it.copy(values = it.values + (key to value)) }
+    fun updateValue(key: String, value: String) {
+        failedMappedFieldKeys.remove(key)
+        updateDraft { it.copy(values = it.values + (key to value)) }
+    }
     fun toggleRandomSeed() = updateDraft { it.copy(randomSeed = !it.randomSeed) }
     fun setPresetQuery(value: String) = _state.update { it.copy(presetQuery = value) }
     fun setBatchCount(value: Int) {
@@ -444,6 +454,10 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
         if (_state.value.uploads.values.any { it.phase == ImageUploadPhase.UPLOADING }) {
             _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_wait_media)) }
+            return
+        }
+        if (failedMappedFieldKeys.isNotEmpty()) {
+            _state.update { it.copy(message = AppStrings.get(R.string.studio_binding_upload_failed)) }
             return
         }
         val blocking = _state.value.insight?.blockingIssues.orEmpty()
@@ -942,6 +956,48 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 }.onFailure { e ->
                     setUpload(field.key, ImageUploadStatus(ImageUploadPhase.FAILED, e.message))
                 }
+        }
+    }
+
+    /**
+     * Explicit image/audio input handoff. Keys must match real draft field keys;
+     * no positional fallback and no silent truncation. All staged uploads are
+     * awaited by the existing paid-submission gate.
+     */
+    private fun applyFieldReferencePaths(paths: Map<String, String>, initial: Boolean) {
+        val draft = _state.value.draft ?: return
+        val fields = draft.fields.associateBy { it.key }
+        val unknown = paths.keys.filter { key ->
+            fields[key]?.kind !in setOf(FieldKind.IMAGE, FieldKind.AUDIO)
+        }
+        if (unknown.isNotEmpty()) {
+            failedMappedFieldKeys += unknown
+            _state.update { it.copy(message = AppStrings.get(R.string.studio_binding_upload_failed)) }
+            return
+        }
+        viewModelScope.launch {
+            paths.forEach { (key, path) ->
+                if (_state.value.draft?.workflowPath != draft.workflowPath) return@launch
+                val field = fields.getValue(key)
+                setUpload(key, ImageUploadStatus(ImageUploadPhase.UPLOADING))
+                val result = runCatching {
+                    if (field.kind == FieldKind.IMAGE) {
+                        referenceValueFor(draft, field, path)
+                    } else {
+                        container.cloudInputStore.saveAudioFromUri(Uri.fromFile(File(path)))
+                    }
+                }
+                result.onSuccess { value ->
+                    if (_state.value.draft?.workflowPath != draft.workflowPath) return@onSuccess
+                    if (initial) storyboardReferenceValuesAtLoad[key] = value
+                    updateValue(key, value)
+                    clearUpload(key)
+                }.onFailure { error ->
+                    if (_state.value.draft?.workflowPath != draft.workflowPath) return@onFailure
+                    failedMappedFieldKeys += key
+                    setUpload(key, ImageUploadStatus(ImageUploadPhase.FAILED, error.message))
+                }
+            }
         }
     }
 
