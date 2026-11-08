@@ -168,6 +168,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
 
     private var converted: ConvertedWorkflow? = null
     private var loadedPath: String? = null
+    private var workflowLoadGeneration = 0L
     private val appliedSeedTasks = mutableSetOf<String>()
     private var draftSaveJob: Job? = null
     private var submitJob: Job? = null
@@ -227,6 +228,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     fun loadWorkflow(path: String, name: String) {
         if (path.isBlank()) return
         if (loadedPath == path && (_state.value.loading || _state.value.draft != null)) return
+        val generation = ++workflowLoadGeneration
         loadedPath = path
         pendingStoryboardProjectId = null
         pendingStoryboardShotId = null
@@ -237,6 +239,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             runCatching { buildDraft(path, name) }
                 .onSuccess { (baseDraft, conv) ->
+                    if (generation != workflowLoadGeneration) return@onSuccess
                     converted = conv
                     val transfer = container.draftTransferRepository.consume(path)
                     pendingStoryboardProjectId = transfer?.storyboardProjectId
@@ -297,7 +300,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     val multipleReferences = transfer?.referenceLocalPaths.orEmpty()
                         .filter(String::isNotBlank)
                     if (exactFields.isNotEmpty()) {
-                        applyFieldReferencePaths(exactFields, initial = storyboard)
+                        applyFieldReferencePaths(exactFields, initial = storyboard, generation = generation)
                     } else if (multipleReferences.isNotEmpty()) {
                         applyReferencePaths(multipleReferences, initial = storyboard)
                     } else {
@@ -308,6 +311,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     consumeIncomingMedia()
                 }
                 .onFailure { e ->
+                    if (generation != workflowLoadGeneration) return@onFailure
                     _state.update { it.copy(loading = false, error = e.message ?: "error") }
                 }
         }
@@ -964,7 +968,11 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
      * no positional fallback and no silent truncation. All staged uploads are
      * awaited by the existing paid-submission gate.
      */
-    private fun applyFieldReferencePaths(paths: Map<String, String>, initial: Boolean) {
+    private fun applyFieldReferencePaths(
+        paths: Map<String, String>,
+        initial: Boolean,
+        generation: Long,
+    ) {
         val draft = _state.value.draft ?: return
         val fields = draft.fields.associateBy { it.key }
         val unknown = paths.keys.filter { key ->
@@ -977,7 +985,8 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
         viewModelScope.launch {
             paths.forEach { (key, path) ->
-                if (_state.value.draft?.workflowPath != draft.workflowPath) return@launch
+                if (generation != workflowLoadGeneration ||
+                    _state.value.draft?.workflowPath != draft.workflowPath) return@launch
                 val field = fields.getValue(key)
                 setUpload(key, ImageUploadStatus(ImageUploadPhase.UPLOADING))
                 val result = runCatching {
@@ -988,12 +997,14 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     }
                 }
                 result.onSuccess { value ->
-                    if (_state.value.draft?.workflowPath != draft.workflowPath) return@onSuccess
+                    if (generation != workflowLoadGeneration ||
+                        _state.value.draft?.workflowPath != draft.workflowPath) return@onSuccess
                     if (initial) storyboardReferenceValuesAtLoad[key] = value
                     updateValue(key, value)
                     clearUpload(key)
                 }.onFailure { error ->
-                    if (_state.value.draft?.workflowPath != draft.workflowPath) return@onFailure
+                    if (generation != workflowLoadGeneration ||
+                        _state.value.draft?.workflowPath != draft.workflowPath) return@onFailure
                     failedMappedFieldKeys += key
                     setUpload(key, ImageUploadStatus(ImageUploadPhase.FAILED, error.message))
                 }
