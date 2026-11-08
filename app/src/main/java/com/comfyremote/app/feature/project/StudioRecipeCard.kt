@@ -18,6 +18,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
+import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.project.VideoProject
@@ -138,7 +139,7 @@ internal fun StudioRecipeCard(
                         singleLine = true,
                         modifier = Modifier.fillMaxWidth(),
                     )
-                    Column(Modifier.heightIn(max = androidx.compose.ui.unit.Dp(330f))
+                    Column(Modifier.heightIn(max = 330.dp)
                         .verticalScroll(rememberScrollState())) {
                         val filtered = suitable.filter {
                             query.isBlank() || it.name.contains(query, true) ||
