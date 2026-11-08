@@ -125,6 +125,9 @@
     <string name="proj_director_warning">警告</string>
     <string name="proj_director_info">提示</string>
     <string name="proj_director_continuity">衔接检查</string>
+    <string name="proj_director_page_previous">上一页</string>
+    <string name="proj_director_page_next">下一页</string>
+    <string name="proj_director_page_count">第 %1$d / %2$d 页 · 分页释放旧缩略图</string>
     <string name="proj_director_continuity_loading">正在抽帧…</string>
     <string name="proj_director_continuity_empty">先生成镜头；每个已完成的镜头会在这里显示逐秒帧条。</string>
     <string name="proj_director_seam_hint">左为上一镜尾帧，右为本镜首帧。差异过大建议重新生成或切镜。</string>
