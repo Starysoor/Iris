@@ -70,4 +70,30 @@
     <string name="price_range_per_run">%1$s–%2$s / run</string>
     <string name="price_platform">Platform billing</string>
     <string name="board_err_missing_task">Associated task is missing from Task Center. Check the provider before trying again; the remote job may still be running.</string>
+    <!-- Studio guided cross-screen experience (#101) -->
+    <string name="studio_progress_title">Your next Studio step</string>
+    <string name="studio_progress_detail">%1$d/%2$d shots ready · %3$d assets · %4$d timeline clips</string>
+    <string name="studio_assets_optional">Reference images are optional for text-only video. Add characters/scenes to improve consistency.</string>
+    <string name="studio_next_add_shots">Start with a shot plan</string>
+    <string name="studio_next_generate">Continue unfinished shots</string>
+    <string name="studio_next_arrange">Arrange finished clips</string>
+    <string name="studio_next_review">Review timeline and export</string>
+    <string name="studio_linked_title">Studio: %1$s · shot %2$d</string>
+    <string name="studio_linked_detail">This generation belongs to this shot; its task and result are traceable in Studio.</string>
+    <string name="studio_back_to_project">Open project</string>
+    <string name="studio_tasks_all">All projects</string>
+    <string name="studio_tasks_independent">Independent tasks</string>
+    <string name="studio_history_as_take">Add as shot take</string>
+    <string name="studio_history_as_timeline">Add directly to timeline</string>
+    <string name="studio_history_as_asset">Import as project asset</string>
+    <string name="studio_history_pick_action">Use result in project</string>
+    <string name="studio_history_pick_shot">Choose a shot</string>
+    <string name="studio_history_take_added">Added as a new take. Select it in the shot workspace when ready.</string>
+    <string name="studio_history_timeline_added">Added to the project's timeline.</string>
+    <string name="studio_history_import_failed">Cannot link this media: %1$s</string>
+    <string name="studio_workflow_search">Search video models</string>
+    <string name="studio_workflow_provider_all">All providers</string>
+    <string name="studio_workflow_none">No matching video workflow</string>
+    <string name="studio_workflow_notice">Only configured video-capable models are shown. For images or audio, use Create and link the result to this project.</string>
+    <string name="studio_ai_more_context">AI uses shot status, characters, scenes, duration and selected takes. Verify every suggestion before applying.</string>
 </resources>
