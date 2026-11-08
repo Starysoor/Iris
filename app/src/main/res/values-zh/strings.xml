@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">灵瞳</string>
+    <string name="history_storage_unreadable">结果索引无法读取，原始媒体并未删除。Iris 已阻止不安全的写入，请保留应用数据并从 history/index.json 备份恢复，不要清除存储。</string>
 
     <!-- 通用操作 -->
     <string name="action_back">返回</string>
