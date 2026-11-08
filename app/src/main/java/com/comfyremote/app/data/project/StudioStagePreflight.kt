@@ -82,7 +82,7 @@ object StudioStagePreflight {
         // The current Create field mapper deliberately does not implement video upload
         // fields. Required unknown fields cannot be represented in Create either.
         val unsupported = spec.rules.filter { rule ->
-            rule.required && rule.type !in supportedTypes
+            rule.required && !rule.isSeed && rule.type !in supportedTypes
         }.map(CloudInputRule::name)
         val state = when {
             spec.kind != expectedKind -> Support.REQUIRES_UNSUPPORTED_INPUT
