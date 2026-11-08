@@ -195,7 +195,9 @@ fun GenerateScreen(
                     linkedShot?.let { linked ->
                         item("studio-linked") {
                             InfoBanner(
-                                title = stringResource(R.string.studio_linked_title, linked.projectTitle, linked.shotNumber),
+                                title = if (linked.shotNumber > 0)
+                                    stringResource(R.string.studio_linked_title, linked.projectTitle, linked.shotNumber)
+                                else stringResource(R.string.studio_linked_project_title, linked.projectTitle),
                                 text = stringResource(R.string.studio_linked_detail),
                                 tone = BannerTone.Info,
                                 actionLabel = stringResource(R.string.studio_back_to_project),
