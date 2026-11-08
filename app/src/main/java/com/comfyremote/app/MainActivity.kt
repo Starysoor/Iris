@@ -65,6 +65,22 @@ class MainActivity : ComponentActivity() {
 
     private fun handleEntryIntent(intent: Intent?) {
         intent ?: return
+        if (BuildConfig.DEBUG && intent.action == ACTION_QA_GALLERY) {
+            // Screenshots are captured from the real Compose UI using deliberately
+            // offline, clearly labeled demo content. No paid generation occurs.
+            val projectId = ShowcaseCaptureSeed.seed(container) ?: return
+            val route = when (intent.getStringExtra("qa_screen")) {
+                "overview" -> Routes.project(projectId)
+                "shots" -> Routes.projectShots(projectId)
+                "assets" -> Routes.projectAssets(projectId)
+                "timeline" -> Routes.projectTimeline(projectId)
+                "director" -> Routes.projectDirector(projectId)
+                "settings" -> Routes.SETTINGS
+                else -> Routes.PROJECTS
+            }
+            container.navigationRequests.request(route)
+            return
+        }
         if (BuildConfig.DEBUG && intent.action == ACTION_QA_SMOKE) {
             // Debug-only CI smoke task: exercises persistence + foreground service
             // against an unreachable local port, never a paid cloud provider.
@@ -96,5 +112,6 @@ class MainActivity : ComponentActivity() {
 
     companion object {
         const val ACTION_QA_SMOKE = "com.comfyremote.app.QA_SMOKE"
+        const val ACTION_QA_GALLERY = "com.comfyremote.app.QA_GALLERY"
     }
 }
