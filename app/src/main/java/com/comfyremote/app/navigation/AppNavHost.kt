@@ -312,6 +312,7 @@ private fun AppNavHost(
                     onOpenCloudVideo = { path, name ->
                         navController.navigate(Routes.generate(path, name))
                     },
+                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
                 )
             }
             composable(
