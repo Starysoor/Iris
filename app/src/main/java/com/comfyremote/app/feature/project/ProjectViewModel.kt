@@ -849,6 +849,20 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         _planState.value = PlanState()
     }
 
+    /** The user can correct the AI plan locally before applying any changes. */
+    fun editPlanSuggestion(index: Int, prompt: String, cameraNotes: String, seconds: Int?) {
+        if (prompt.isBlank() || (seconds != null && seconds !in 1..3600)) return
+        val state = _planState.value
+        if (index !in state.suggestions.indices || state.loading) return
+        _planState.value = state.copy(suggestions = state.suggestions.mapIndexed { i, previous ->
+            if (i == index) previous.copy(
+                prompt = prompt.trim(),
+                cameraNotes = cameraNotes.trim(),
+                suggestedSeconds = seconds,
+            ) else previous
+        })
+    }
+
     /** Suggests a shot plan via the configured AI; advice only, no side effects. */
     fun suggestShotPlan(projectId: String) {
         val project = container.projectStore.project(projectId) ?: return
@@ -864,7 +878,9 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 runCatching {
                     val text = container.aiRepository.chat(
                         DirectorPrompts.system(),
-                        DirectorPrompts.user(project),
+                        DirectorPrompts.user(project, _workflows.value.map { 
+                            "${it.providerLabel} · ${it.name}"
+                        }),
                     )
                     DirectorPrompts.parsePlan(text)
                 }.getOrElse {
@@ -885,11 +901,19 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val state = _planState.value
         val chosen = state.suggestions.filterIndexed { index, _ -> index in state.selected }
         if (chosen.isEmpty()) return
-        chosen.forEach { suggestion ->
-            container.projectStore.addShot(projectId, suggestion.prompt, suggestion.cameraNotes)
+        val drafts = chosen.map { suggestion ->
+            ProjectShot(
+                prompt = suggestion.prompt,
+                cameraNotes = suggestion.cameraNotes,
+                plannedDurationSeconds = suggestion.suggestedSeconds,
+            )
         }
-        _message.value = AppStrings.get(R.string.proj_director_plan_applied, chosen.size)
-        _planState.value = PlanState()
+        if (container.projectStore.addPlannedShots(projectId, drafts)) {
+            _message.value = AppStrings.get(R.string.proj_director_plan_applied, chosen.size)
+            _planState.value = PlanState()
+        } else {
+            _message.value = AppStrings.get(R.string.board_err_persist)
+        }
     }
 
     /** The seam frame of a shot: its own tail frame, else the media edge. */
