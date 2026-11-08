@@ -119,6 +119,31 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun appliedAiShotsInheritFrameRelayButNotUntrustedSourceTaskIdentity() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val first = store.addShot(project.id, "opening")!!
+        assertTrue(store.updateShot(project.id, first.id) {
+            it.copy(lastFramePath = "/history/last-frame.png")
+        })
+        assertTrue(store.addPlannedShots(project.id, listOf(
+            ProjectShot(
+                prompt = "AI proposed shot",
+                cameraNotes = "following shot",
+                plannedDurationSeconds = 12,
+                taskId = "untrusted-task",
+                status = "running",
+                resultPath = "/untrusted.mp4",
+            ),
+        )))
+        val next = store.project(project.id)!!.shots.last()
+        assertEquals("draft", next.status)
+        assertEquals("/history/last-frame.png", next.referencePath)
+        assertNull(next.taskId)
+        assertNull(next.resultPath)
+    }
+
+    @Test
     fun directorPlanAppliesAsOneValidatedLocalOperationWithoutPaidTask() {
         val store = store()
         val project = store.create("Film", "wf")!!
