@@ -330,8 +330,9 @@ private fun StudioContractDetails(
                 Box {
                     TextButton(onClick = { expandedField = input.field }) {
                         Text(
-                            current?.label?.ifBlank { java.io.File(current.path).name }
-                                ?: stringResource(R.string.studio_binding_choose),
+                            current?.let { asset ->
+                                asset.label.ifBlank { java.io.File(asset.path).name }
+                            } ?: stringResource(R.string.studio_binding_choose),
                             maxLines = 2,
                         )
                     }
