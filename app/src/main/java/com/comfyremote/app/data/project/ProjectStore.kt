@@ -189,6 +189,35 @@ class ProjectStore internal constructor(private val file: File) {
             created.takeIf { persisted }
         }
 
+    /**
+     * Apply an AI shot proposal in a single atomic project-index write.
+     * A model response never executes a paid generation or changes existing shots.
+     */
+    fun addPlannedShots(projectId: String, suggested: List<ProjectShot>): Boolean =
+        synchronized(lock) {
+            if (suggested.isEmpty() || suggested.size > 30 ||
+                suggested.any { it.prompt.isBlank() ||
+                    (it.plannedDurationSeconds != null && it.plannedDurationSeconds !in 1..3600) }
+            ) return@synchronized false
+            updateLocked(projectId) { project ->
+                project.copy(
+                    shots = project.shots + suggested.map { shot ->
+                        shot.copy(
+                            id = UUID.randomUUID().toString(),
+                            prompt = shot.prompt.trim(),
+                            status = "draft",
+                            taskId = null,
+                            resultPath = null,
+                            error = null,
+                            takes = emptyList(),
+                            selectedTakeId = null,
+                        )
+                    },
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
+        }
+
     fun insertShotAfter(projectId: String, shotId: String, prompt: String, cameraNotes: String? = null): ProjectShot? =
         synchronized(lock) {
             var created: ProjectShot? = null
