@@ -121,4 +121,11 @@
     <string name="studio_recipe_step_video">生成视频候选并接力首尾帧</string>
     <string name="studio_recipe_step_audio">制作音乐、对白和音效</string>
     <string name="studio_recipe_step_timeline">复核、混音和导出</string>
+    <!-- Optional Create→Studio association (#101) -->
+    <string name="studio_link_optional_title">独立创作</string>
+    <string name="studio_link_optional_hint">可选：生成前关联到某个项目或视频镜头。也可以继续独立创作。</string>
+    <string name="studio_link_choose">关联项目</string>
+    <string name="studio_link_unlink">取消本次草稿关联</string>
+    <string name="studio_link_project_level">只关联到该项目</string>
+    <string name="studio_link_shot">关联第 %1$d 镜头</string>
 </resources>
