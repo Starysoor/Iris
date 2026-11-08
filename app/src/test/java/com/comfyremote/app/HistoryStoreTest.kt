@@ -36,6 +36,56 @@ class HistoryStoreTest {
     )
 
     @Test
+    fun corruptHistoryIndexShowsAReadErrorAndNeverOverwritesOriginalBytes() {
+        val dir = directory()
+        val index = File(dir, "index.json").apply { writeText("{broken") }
+        val media = File(dir, "important.mp4").apply { writeText("important video") }
+        val store = HistoryStore(dir)
+        assertTrue(store.load().isEmpty())
+        assertTrue(store.loadError.value != null)
+        assertTrue(runCatching { store.add(item("another", dir, listOf(media))) }.isFailure)
+        assertEquals("{broken", index.readText())
+        assertTrue(media.isFile)
+        assertTrue(store.loadError.value != null)
+    }
+
+    @Test
+    fun historyIndexWithMalformedRowsAlsoBlocksWrites() {
+        val dir = directory()
+        val index = File(dir, "index.json").apply { writeText("""[{"id":"valid"},123]""") }
+        val store = HistoryStore(dir)
+        assertTrue(store.load().isEmpty())
+        assertTrue(store.loadError.value != null)
+        assertTrue(runCatching { store.add(item("new", dir)) }.isFailure)
+        assertEquals("""[{"id":"valid"},123]""", index.readText())
+    }
+
+    @Test
+    fun restartingHistoryStoreReclaimsOnlyOldStudioExportTempFiles() {
+        val dir = directory()
+        val old = File(dir, "project-export-1760000000000_0.mp4.tmp").apply {
+            writeText("stale")
+            setLastModified(System.currentTimeMillis() - 60 * 60_000L)
+        }
+        val recent = File(dir, "project-export-1760000000001_0.mp4.tmp").apply {
+            writeText("in-progress")
+        }
+        val unrelated = File(dir, "unrelated-file.mp4.tmp").apply {
+            writeText("keep")
+            setLastModified(System.currentTimeMillis() - 60 * 60_000L)
+        }
+        val completed = File(dir, "project-export-1760000000002_0.mp4").apply {
+            writeText("published")
+            setLastModified(System.currentTimeMillis() - 60 * 60_000L)
+        }
+        HistoryStore(dir)
+        assertFalse(old.exists())
+        assertTrue(recent.exists())
+        assertTrue(unrelated.exists())
+        assertTrue(completed.exists())
+    }
+
+    @Test
     fun fieldMetadataSurvivesTheIndexRoundTrip() {
         val dir = directory()
         val media = File(dir, "result.png").apply { writeText("image") }
