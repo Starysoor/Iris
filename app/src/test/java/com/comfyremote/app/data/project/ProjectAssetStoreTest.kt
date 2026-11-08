@@ -59,6 +59,36 @@ class ProjectAssetStoreTest {
     }
 
     @Test
+    fun largeVideoImportsStreamAt50And200MiBWithoutKeepingWholeFileInHeap() = runBlocking {
+        val store = store()
+        for (sizeMiB in listOf(50L, 200L)) {
+            val source = temp.newFile("large-$sizeMiB.mp4")
+            java.io.RandomAccessFile(source, "rw").use { raf ->
+                raf.setLength(sizeMiB * 1024 * 1024)
+                raf.seek(0)
+                raf.writeByte(0x55)
+            }
+            val asset = store.importFile(source.absolutePath, ReferenceRole.SCENE_REFERENCE)
+            val dest = File(asset.path)
+            assertEquals(source.length(), dest.length())
+            java.io.RandomAccessFile(dest, "r").use { assertEquals(0x55, it.readUnsignedByte()) }
+            dest.delete()
+            source.delete()
+        }
+    }
+
+    @Test
+    fun audioImportStreamsAndLeavesNoTemporaryFiles() = runBlocking {
+        val store = store()
+        val source = temp.newFile("voice.wav")
+        java.io.RandomAccessFile(source, "rw").use { it.setLength(50L * 1024 * 1024) }
+        val asset = store.importFile(source.absolutePath, ReferenceRole.GENERIC_REFERENCE)
+        assertEquals(AssetKind.AUDIO, asset.kind)
+        assertEquals(50L * 1024 * 1024, File(asset.path).length())
+        assertTrue(store.listImportedFiles().none { it.name.endsWith(".tmp") })
+    }
+
+    @Test
     fun audioFilesKeepTheirContainerExtension() = runBlocking {
         val store = store()
         val source = temp.newFile("voice.m4a").apply { writeBytes(ByteArray(128)) }
