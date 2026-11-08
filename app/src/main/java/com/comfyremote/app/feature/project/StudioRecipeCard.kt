@@ -77,19 +77,23 @@ internal fun StudioRecipeCard(
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                     )
-                    Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        TextAction(
-                            text = stringResource(R.string.studio_recipe_select_model),
-                            onClick = { modelKind = kind },
-                        )
-                        if (model != null) {
+                    Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             TextAction(
-                                text = stringResource(R.string.studio_contract_inspect),
-                                onClick = {
-                                    inspectKind = kind
-                                    onInspectStage(kind, path)
-                                },
+                                text = stringResource(R.string.studio_recipe_select_model),
+                                onClick = { modelKind = kind },
                             )
+                            if (model != null) {
+                                TextAction(
+                                    text = stringResource(R.string.studio_contract_inspect),
+                                    onClick = {
+                                        inspectKind = kind
+                                        onInspectStage(kind, path)
+                                    },
+                                )
+                            }
+                        }
+                        if (model != null) {
                             TextAction(
                                 text = stringResource(R.string.studio_recipe_run_stage),
                                 onClick = { onRunStage(kind) },
