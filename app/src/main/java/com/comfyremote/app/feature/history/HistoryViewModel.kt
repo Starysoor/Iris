@@ -21,6 +21,7 @@ import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
 
 class HistoryViewModel(private val container: AppContainer) : ViewModel() {
+    val historyLoadError: StateFlow<String?> = container.historyRepository.loadError
     private val _query = MutableStateFlow("")
     val query: StateFlow<String> = _query.asStateFlow()
     private val _favoritesOnly = MutableStateFlow(false)
