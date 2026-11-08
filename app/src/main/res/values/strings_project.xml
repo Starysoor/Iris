@@ -5,6 +5,8 @@
     <string name="proj_subtitle">AI video workbench · %1$d</string>
     <string name="proj_new">New project</string>
     <string name="proj_empty_title">No projects yet</string>
+    <string name="proj_storage_unreadable">Project index cannot be read safely. Your projects have not been deleted.</string>
+    <string name="proj_storage_recovery">Iris has blocked writes over the damaged projects.json. Preserve app data and restore a backup; do not clear storage or reinstall.</string>
     <string name="proj_empty_detail">Create a project, import characters and scenes, build shots and turn them into a finished video</string>
 
     <!-- Project home -->
