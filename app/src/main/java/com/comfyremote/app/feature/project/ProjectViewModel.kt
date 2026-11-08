@@ -68,7 +68,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     private val syncing = mutableSetOf<String>()
 
     private companion object {
-        const val STRIP_FRAMES = 6
+        const val STRIP_FRAMES = 5
+        const val CONTINUITY_PAGE_SHOTS = 16
     }
 
     /** Providers whose catalogue loaded at least once; lets us flag removed workflows. */
@@ -759,29 +760,39 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val strips: List<ShotStrip> = emptyList(),
         val seams: List<SeamCheck> = emptyList(),
         val loading: Boolean = false,
+        val pageIndex: Int = 0,
+        val pageCount: Int = 1,
     )
 
     private val _continuity = MutableStateFlow(ContinuityState())
     val continuity: StateFlow<ContinuityState> = _continuity.asStateFlow()
 
-    /** Extracts per-second strips and adjacent-seam diffs on IO; cached in state. */
-    fun loadContinuity(projectId: String) {
+    private var continuityJob: Job? = null
+
+    /** Replaces the previous page rather than retaining hundreds of bitmap strips. */
+    fun loadContinuity(projectId: String, requestedPage: Int = 0) {
         val project = container.projectStore.project(projectId) ?: return
-        if (_continuity.value.loading) return
-        viewModelScope.launch {
-            _continuity.value = ContinuityState(loading = true)
+        continuityJob?.cancel()
+        _continuity.value = ContinuityState(loading = true, pageIndex = requestedPage)
+        continuityJob = viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
                 val done = project.shots.withIndex().filter { (index, shot) ->
                     val path = shot.resultPath
                     shot.status == "done" && path != null && File(path).isFile
                 }
-                val strips = done.mapNotNull { (index, shot) ->
+                val pageCount = maxOf(1, (done.size + CONTINUITY_PAGE_SHOTS - 1) / CONTINUITY_PAGE_SHOTS)
+                val page = requestedPage.coerceIn(0, pageCount - 1)
+                val first = page * CONTINUITY_PAGE_SHOTS
+                val visible = done.drop(first).take(CONTINUITY_PAGE_SHOTS)
+                val seamsScope = done.drop((first - 1).coerceAtLeast(0))
+                    .take(CONTINUITY_PAGE_SHOTS + if (first > 0) 1 else 0)
+                val strips = visible.mapNotNull { (index, shot) ->
                     val duration = mediaDurationMs(shot.resultPath!!) ?: 0L
                     val frames = FrameStrip.extractFrames(shot.resultPath, STRIP_FRAMES)
                     if (frames.isNullOrEmpty()) null
                     else ShotStrip(shot.id, index, "镜头 ${index + 1}", duration, frames)
                 }
-                val seams = done.zipWithNext().mapNotNull { (a, b) ->
+                val seams = seamsScope.zipWithNext().mapNotNull { (a, b) ->
                     val lastA = seamFrame(a.value, seamAtEnd = true) ?: return@mapNotNull null
                     val firstB = seamFrame(b.value, seamAtEnd = false) ?: return@mapNotNull null
                     val indexA = project.shots.indexOfFirst { it.id == a.value.id }
@@ -796,10 +807,18 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                         firstB,
                     )
                 }
-                ContinuityState(strips = strips, seams = seams, loading = false)
+                ContinuityState(strips = strips, seams = seams, loading = false,
+                    pageIndex = page, pageCount = pageCount)
             }
             _continuity.value = result
         }
+    }
+
+    fun clearContinuity() {
+        continuityJob?.cancel()
+        continuityJob = null
+        // Drop every cached Bitmap reference when leaving the director.
+        _continuity.value = ContinuityState()
     }
 
     // ---- AI shot plan (P3-3, advice only) ----
