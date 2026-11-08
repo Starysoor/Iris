@@ -28,6 +28,7 @@
 
     <!-- Asset library -->
     <string name="proj_assets_manage">管理</string>
+    <string name="proj_assets_disk_usage">项目已关联素材约 %1$d MiB · 按独立文件去重统计</string>
     <string name="proj_assets_title">项目素材</string>
     <string name="proj_assets_empty_hint">导入图片、视频或音频；打标签并归入角色/场景一致性档案，即可跨镜头复用。</string>
     <string name="proj_asset_kind_all">全部</string>
