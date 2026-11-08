@@ -35,6 +35,8 @@ data class ProjectShot(
     val prompt: String = "",
     /** Optional camera/blocking description for the shot workshop. */
     val cameraNotes: String? = null,
+    /** Director's intended length for the scene, not a guaranteed single-model clip duration. */
+    val plannedDurationSeconds: Int? = null,
     /** Reference image for this shot, already copied to app storage when set. */
     val referencePath: String? = null,
     /** True when the user picked the reference manually; auto updates must not overwrite it. */
