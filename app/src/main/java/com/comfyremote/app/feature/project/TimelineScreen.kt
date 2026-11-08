@@ -590,7 +590,9 @@ private fun PreviewDialog(timeline: Timeline, onDismiss: () -> Unit) {
             prepare()
         }
     }
-    DisposableEffect(Unit) {
+    // The video-track key can replace player without closing the dialog.
+    // Tie teardown to this exact ExoPlayer instance, not the dialog lifetime.
+    DisposableEffect(player) {
         onDispose { player.release() }
     }
     AlertDialog(
@@ -600,6 +602,7 @@ private fun PreviewDialog(timeline: Timeline, onDismiss: () -> Unit) {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 AndroidView(
                     factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
+                    update = { view -> if (view.player !== player) view.player = player },
                     modifier = Modifier.fillMaxWidth().height(220.dp),
                 )
                 Text(
