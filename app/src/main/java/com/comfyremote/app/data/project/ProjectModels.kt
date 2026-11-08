@@ -165,6 +165,8 @@ data class VideoProject(
     val workflowRecipeId: String = StudioWorkflowRecipes.TEXT_TO_VIDEO,
     /** Explicit per-stage cloud model choices, indexed by image/video/audio kind. */
     val stageWorkflowPaths: Map<String, String> = emptyMap(),
+    /** Explicit per-provider-input asset bindings; never use positional image guessing. */
+    val stageMediaBindings: List<StudioStageMediaBinding> = emptyList(),
     /** Optional "tail frame relay" gameplay; off leaves each shot's reference manual. */
     val chainFrames: Boolean = true,
     /** Soft budget cap for cloud spend; stored only in P0, no enforcement yet. */
