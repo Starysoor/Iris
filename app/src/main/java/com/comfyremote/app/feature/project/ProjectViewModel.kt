@@ -32,6 +32,8 @@ import com.comfyremote.app.ui.AppStrings
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.isActive
+import java.util.concurrent.atomic.AtomicLong
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
@@ -71,6 +73,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Providers whose catalogue loaded at least once; lets us flag removed workflows. */
     private val catalogReadyProviders = mutableSetOf<String>()
+    private val catalogRefreshVersion = AtomicLong(0L)
+    private var catalogRefreshJob: Job? = null
 
     init {
         refreshWorkflows()
@@ -99,8 +103,11 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun refreshWorkflows() {
-        viewModelScope.launch {
-            catalogReadyProviders.clear()
+        // Earlier catalogue calls may finish after a later provider/settings change.
+        // Cancel the previous job AND verify a monotonic generation before publishing.
+        val version = catalogRefreshVersion.incrementAndGet()
+        catalogRefreshJob?.cancel()
+        catalogRefreshJob = viewModelScope.launch {
             val (options, errors, ready) = withContext(Dispatchers.IO) {
                 val options = mutableListOf<ProjectWorkflowOption>()
                 val errors = mutableListOf<String>()
@@ -131,6 +138,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 }
                 Triple(options, errors, ready)
             }
+            if (!isActive || version != catalogRefreshVersion.get()) return@launch
+            catalogReadyProviders.clear()
             catalogReadyProviders += ready
             _workflows.value = options.distinctBy { it.path }.sortedWith(
                 compareBy<ProjectWorkflowOption> { it.providerLabel.lowercase() }
