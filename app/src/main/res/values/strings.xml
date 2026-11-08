@@ -122,4 +122,11 @@
     <string name="studio_recipe_step_video">Generate video takes and relay frames</string>
     <string name="studio_recipe_step_audio">Create music / voice / sound effects</string>
     <string name="studio_recipe_step_timeline">Review, mix and export</string>
+    <!-- Optional Create→Studio association (#101) -->
+    <string name="studio_link_optional_title">Independent creation</string>
+    <string name="studio_link_optional_hint">Optional: link this task to a Studio project or video shot before generating. Ordinary independent work remains unchanged.</string>
+    <string name="studio_link_choose">Link to project</string>
+    <string name="studio_link_unlink">Unlink future submissions</string>
+    <string name="studio_link_project_level">Link to this project only</string>
+    <string name="studio_link_shot">Use shot %1$d</string>
 </resources>
