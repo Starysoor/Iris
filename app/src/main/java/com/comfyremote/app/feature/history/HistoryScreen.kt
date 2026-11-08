@@ -49,6 +49,8 @@ import com.comfyremote.app.feature.generate.shareMedia
 import com.comfyremote.app.feature.project.referenceRoleLabel
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.EmptyState
+import com.comfyremote.app.ui.components.InfoBanner
+import com.comfyremote.app.ui.components.BannerTone
 import com.comfyremote.app.ui.components.IrisChip
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.IrisTextField
@@ -61,6 +63,7 @@ fun HistoryScreen(
     onReuse: (DraftTransfer) -> Unit,
 ) {
     val history by viewModel.items.collectAsState()
+    val historyLoadError by viewModel.historyLoadError.collectAsState()
     val query by viewModel.query.collectAsState()
     val favoritesOnly by viewModel.favoritesOnly.collectAsState()
     val message by viewModel.message.collectAsState()
@@ -120,6 +123,11 @@ fun HistoryScreen(
             horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            if (historyLoadError != null) {
+                item(key = "storage-error", span = { GridItemSpan(maxLineSpan) }) {
+                    InfoBanner(text = stringResource(R.string.history_storage_unreadable), tone = BannerTone.Error)
+                }
+            }
             item(key = "search", span = { GridItemSpan(maxLineSpan) }) {
                 IrisTextField(
                     value = query,
@@ -140,7 +148,7 @@ fun HistoryScreen(
                     )
                 }
             }
-            if (history.isEmpty()) {
+            if (history.isEmpty() && historyLoadError == null) {
                 item(key = "empty", span = { GridItemSpan(maxLineSpan) }) {
                     EmptyState(
                         title = stringResource(if (query.isBlank() && !favoritesOnly) R.string.history_empty else R.string.history_no_match),
