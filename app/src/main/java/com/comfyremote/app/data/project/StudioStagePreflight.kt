@@ -98,7 +98,10 @@ object StudioStagePreflight {
                 "video" -> AssetKind.VIDEO
                 else -> null
             }
-            val candidates = if (kind == null) 0 else projectAssets.count { asset ->
+            val candidates = if (kind == null) 0 else projectAssets
+                .filter { it.path.isNotBlank() }
+                .distinctBy { it.path }
+                .count { asset ->
                 asset.kind == kind && (kind != AssetKind.IMAGE ||
                     rule.referenceRole == ReferenceRole.AUTO ||
                     rule.referenceRole == ReferenceRole.GENERIC_REFERENCE ||
