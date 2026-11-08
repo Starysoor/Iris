@@ -129,6 +129,25 @@ class ProjectStore internal constructor(private val file: File) {
         it.copy(budget = budget?.takeIf { value -> value.isFinite() && value > 0.0 }, updatedAt = System.currentTimeMillis())
     }
 
+    /** Local recipe/plan changes never submit paid work or modify an existing Take. */
+    fun setWorkflowRecipe(projectId: String, recipeId: String): Boolean {
+        if (!StudioWorkflowRecipes.supports(recipeId)) return false
+        return update(projectId) { project ->
+            project.copy(workflowRecipeId = recipeId, updatedAt = System.currentTimeMillis())
+        }
+    }
+
+    fun setStageWorkflow(projectId: String, kind: String, workflowPath: String): Boolean {
+        if (!StudioWorkflowRecipes.isModelKind(kind)) return false
+        return update(projectId) { project ->
+            project.copy(
+                stageWorkflowPaths = if (workflowPath.isBlank()) project.stageWorkflowPaths - kind
+                    else project.stageWorkflowPaths + (kind to workflowPath),
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+    }
+
     /** Toggles the optional tail-frame relay. Turning it off clears automatic refs only. */
     fun setChainFrames(projectId: String, enabled: Boolean): Boolean = update(projectId) { project ->
         project.copy(
@@ -187,6 +206,35 @@ class ProjectStore internal constructor(private val file: File) {
                 )
             }
             created.takeIf { persisted }
+        }
+
+    /**
+     * Apply an AI shot proposal in a single atomic project-index write.
+     * A model response never executes a paid generation or changes existing shots.
+     */
+    fun addPlannedShots(projectId: String, suggested: List<ProjectShot>): Boolean =
+        synchronized(lock) {
+            if (suggested.isEmpty() || suggested.size > 30 ||
+                suggested.any { it.prompt.isBlank() ||
+                    (it.plannedDurationSeconds != null && it.plannedDurationSeconds !in 1..3600) }
+            ) return@synchronized false
+            updateLocked(projectId) { project ->
+                project.copy(
+                    // Only safe creative fields cross from AI proposals. Keep automatic
+                    // previous-shot tail-frame relay identical to normal addShot().
+                    shots = rebaseAutoReferences(
+                        project.shots + suggested.map { shot ->
+                            ProjectShot(
+                                prompt = shot.prompt.trim(),
+                                cameraNotes = shot.cameraNotes?.trim()?.ifBlank { null },
+                                plannedDurationSeconds = shot.plannedDurationSeconds,
+                            )
+                        },
+                        project.chainFrames,
+                    ),
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
         }
 
     fun insertShotAfter(projectId: String, shotId: String, prompt: String, cameraNotes: String? = null): ProjectShot? =
@@ -447,6 +495,36 @@ class ProjectStore internal constructor(private val file: File) {
                 project.copy(shots = shots, updatedAt = System.currentTimeMillis())
             }
             attached && persisted
+        }
+
+    /**
+     * Link an existing History-owned video to a shot as a *candidate*, not as the
+     * primary take. It must never interrupt an active remote task or silently
+     * replace a selected take or a previously arranged timeline clip.
+     *
+     * The underlying HistoryStore's referenced-path guard keeps the media alive
+     * while this Take refers to it. Repeated actions are idempotent by media path.
+     */
+    fun attachExistingTake(projectId: String, shotId: String, source: ShotTake): Boolean =
+        synchronized(lock) {
+            val path = source.resultPath
+            if (source.status != "done" || path.isNullOrBlank()) return@synchronized false
+            var added = false
+            val persisted = updateLocked(projectId) { project ->
+                val shots = project.shots.map { shot ->
+                    if (shot.id != shotId || shot.status == "running" ||
+                        shot.takes.any { it.resultPath == path }) return@map shot
+                    added = true
+                    shot.copy(takes = shot.takes + source.copy(
+                        id = UUID.randomUUID().toString(),
+                        status = "done",
+                        resultPath = path,
+                        createdAt = System.currentTimeMillis(),
+                    ))
+                }
+                project.copy(shots = shots, updatedAt = System.currentTimeMillis())
+            }
+            added && persisted
         }
 
     /** Marks the shot done and closes the matching running take with the result. */

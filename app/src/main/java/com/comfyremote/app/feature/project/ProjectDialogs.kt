@@ -2,6 +2,8 @@ package com.comfyremote.app.feature.project
 
 import androidx.compose.foundation.BorderStroke
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -56,42 +58,117 @@ internal fun WorkflowPicker(
     onSelect: (String) -> Unit,
 ) {
     var menu by remember { mutableStateOf(false) }
-    Box {
-        Surface(
-            shape = MaterialTheme.shapes.medium,
-            color = MaterialTheme.colorScheme.surfaceContainer,
-            border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
-            modifier = Modifier
-                .fillMaxWidth()
-                .clip(MaterialTheme.shapes.medium)
-                .clickable { menu = true },
+    Surface(
+        shape = MaterialTheme.shapes.medium,
+        color = MaterialTheme.colorScheme.surfaceContainer,
+        border = BorderStroke(1.dp, MaterialTheme.colorScheme.outlineVariant),
+        modifier = Modifier.fillMaxWidth().clip(MaterialTheme.shapes.medium).clickable { menu = true },
+    ) {
+        Row(
+            Modifier.padding(start = Spacing.lg, end = Spacing.md, top = 14.dp, bottom = 14.dp),
+            verticalAlignment = Alignment.CenterVertically,
         ) {
-            Row(
-                Modifier.padding(start = Spacing.lg, end = Spacing.md, top = 14.dp, bottom = 14.dp),
-                verticalAlignment = Alignment.CenterVertically,
-            ) {
-                Text(
-                    workflows.firstOrNull { it.path == selectedPath }?.let {
-                        "${it.providerLabel} · ${it.name}"
-                    } ?: stringResource(R.string.proj_no_default_workflow),
-                    style = MaterialTheme.typography.bodyLarge,
-                    modifier = Modifier.weight(1f),
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
+            Text(
+                workflows.firstOrNull { it.path == selectedPath }?.let {
+                    "${it.providerLabel} · ${it.name}"
+                } ?: stringResource(R.string.proj_no_default_workflow),
+                style = MaterialTheme.typography.bodyLarge,
+                modifier = Modifier.weight(1f),
+                maxLines = 1,
+                overflow = TextOverflow.Ellipsis,
+            )
+            Icon(Icons.Outlined.ArrowDropDown, null)
+        }
+    }
+    if (menu) {
+        AlertDialog(
+            onDismissRequest = { menu = false },
+            title = { Text(stringResource(R.string.board_shot_workflow)) },
+            text = {
+                SearchableStudioWorkflows(
+                    workflows = workflows,
+                    selectedPath = selectedPath,
+                    onSelect = { onSelect(it); menu = false },
+                    onDefault = { onSelect(""); menu = false },
                 )
-                Icon(Icons.Outlined.ArrowDropDown, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { menu = false }) {
+                Text(stringResource(R.string.action_cancel))
+            } },
+        )
+    }
+}
+
+/**
+ * Reusable searchable video workflow selector. Only confirmed catalogue entries
+ * are offered; we do not guess capabilities from model names.
+ */
+@Composable
+private fun SearchableStudioWorkflows(
+    workflows: List<ProjectWorkflowOption>,
+    selectedPath: String?,
+    onSelect: (String) -> Unit,
+    onDefault: (() -> Unit)?,
+) {
+    var query by remember { mutableStateOf("") }
+    var provider by remember { mutableStateOf("") }
+    val providers = workflows.map { it.providerLabel }.distinct().sorted()
+    val results = workflows.filter { option ->
+        (provider.isBlank() || option.providerLabel == provider) &&
+            (query.isBlank() || option.name.contains(query, ignoreCase = true) ||
+                option.providerLabel.contains(query, ignoreCase = true) ||
+                option.path.contains(query, ignoreCase = true))
+    }
+    Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+        IrisTextField(
+            value = query,
+            onValueChange = { query = it },
+            label = stringResource(R.string.studio_workflow_search),
+            singleLine = true,
+            modifier = Modifier.fillMaxWidth(),
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.xs),
+        ) {
+            TextButton(onClick = { provider = "" }) {
+                Text(if (provider.isEmpty()) "✓ " + stringResource(R.string.studio_workflow_provider_all)
+                    else stringResource(R.string.studio_workflow_provider_all))
+            }
+            providers.forEach { option ->
+                TextButton(onClick = { provider = if (provider == option) "" else option }) {
+                    Text((if (provider == option) "✓ " else "") + option)
+                }
             }
         }
-        DropdownMenu(menu, { menu = false }) {
-            DropdownMenuItem(
-                text = { Text(stringResource(R.string.proj_no_default_workflow)) },
-                onClick = { onSelect(""); menu = false },
-            )
-            workflows.forEach { workflow ->
-                DropdownMenuItem(
-                    text = { Text("${workflow.providerLabel} · ${workflow.name}") },
-                    onClick = { onSelect(workflow.path); menu = false },
+        Text(
+            stringResource(R.string.studio_workflow_notice),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        Column(Modifier.fillMaxWidth().heightIn(max = 330.dp).verticalScroll(rememberScrollState())) {
+            onDefault?.let { action ->
+                TextButton(onClick = action) {
+                    Text((if (selectedPath.isNullOrBlank()) "✓ " else "") +
+                        stringResource(R.string.proj_no_default_workflow))
+                }
+            }
+            if (results.isEmpty()) {
+                Text(
+                    stringResource(R.string.studio_workflow_none),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
+            }
+            results.forEach { workflow ->
+                TextButton(onClick = { onSelect(workflow.path) }) {
+                    Text(
+                        (if (selectedPath == workflow.path) "✓ " else "") +
+                            "${workflow.providerLabel} · ${workflow.name}",
+                        maxLines = 2,
+                    )
+                }
             }
         }
     }
@@ -631,41 +708,17 @@ internal fun ShotWorkflowDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.board_shot_workflow)) },
         text = {
-            Column(Modifier.verticalScroll(rememberScrollState())) {
-                Text(
-                    stringResource(R.string.board_shot_workflow_hint),
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant,
-                )
-                TextButton(onClick = onFollowProject) {
-                    Text(
-                        (if (currentPath.isNullOrBlank()) "✓ " else "") +
-                            stringResource(R.string.board_follow_project),
-                    )
-                }
-                if (workflows.isEmpty()) {
-                    Text(
-                        stringResource(R.string.board_no_shot_workflows),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                }
-                workflows.forEach { wf ->
-                    TextButton(onClick = { onPick(wf) }) {
-                        Text(
-                            (if (currentPath == wf.path) "✓ " else "") +
-                                "${wf.providerLabel} · ${wf.name}",
-                        )
-                    }
-                }
-            }
+            SearchableStudioWorkflows(
+                workflows = workflows,
+                selectedPath = currentPath,
+                onSelect = { path -> workflows.firstOrNull { it.path == path }?.let(onPick) },
+                onDefault = onFollowProject,
+            )
         },
         confirmButton = {},
-        dismissButton = {
-            TextButton(onClick = onDismiss) {
-                Text(stringResource(R.string.action_cancel))
-            }
-        },
+        dismissButton = { TextButton(onClick = onDismiss) {
+            Text(stringResource(R.string.action_cancel))
+        } },
     )
 }
 

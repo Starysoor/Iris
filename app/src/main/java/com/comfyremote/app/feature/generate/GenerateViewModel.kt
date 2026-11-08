@@ -144,7 +144,16 @@ internal fun resolveNegativePromptSource(
     return (draft.values[positive.key] ?: positive.value).takeIf(String::isNotBlank)
 }
 
+data class LinkedStudioShot(
+    val projectId: String,
+    val projectTitle: String,
+    val shotNumber: Int,
+)
+
 class GenerateViewModel(private val container: AppContainer) : ViewModel() {
+    private val _linkedShot = MutableStateFlow<LinkedStudioShot?>(null)
+    val linkedShot: StateFlow<LinkedStudioShot?> = _linkedShot.asStateFlow()
+    val projects = container.projectStore.projects
     private val appSettings = container.appSettingsStore.settings.value
     private val _state = MutableStateFlow(
         GenerateUiState(
@@ -219,6 +228,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         loadedPath = path
         pendingStoryboardProjectId = null
         pendingStoryboardShotId = null
+        _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
         _state.update { it.copy(loading = true, error = null, draft = null, insight = null) }
         viewModelScope.launch {
@@ -228,6 +238,13 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     val transfer = container.draftTransferRepository.consume(path)
                     pendingStoryboardProjectId = transfer?.storyboardProjectId
                     pendingStoryboardShotId = transfer?.storyboardShotId
+                    _linkedShot.value = transfer?.storyboardProjectId?.let { projectId ->
+                        container.projectStore.project(projectId)?.let { project ->
+                            val index = project.shots.indexOfFirst { it.id == transfer.storyboardShotId }
+                            // A workflow-recipe stage belongs to a project even without a Shot.
+                            LinkedStudioShot(projectId, project.title, if (index >= 0) index + 1 else 0)
+                        }
+                    }
                     val storyboard = pendingStoryboardProjectId != null && pendingStoryboardShotId != null
                     val remembered = if (transfer == null &&
                         container.appSettingsStore.settings.value.autoRestoreDrafts
@@ -287,6 +304,38 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 .onFailure { e ->
                     _state.update { it.copy(loading = false, error = e.message ?: "error") }
                 }
+        }
+    }
+
+    /**
+     * Optional Create→Studio association. Provider image/audio/local custom workflows
+     * may be linked to a project, but only catalog-confirmed video workflows may
+     * bind directly to a Shot; other media must flow through Results verification.
+     */
+    fun linkCurrentDraft(projectId: String?, shotId: String?) {
+        val draft = _state.value.draft ?: return
+        val active = _state.value.activeTaskId?.let { id -> tasks.value.firstOrNull { it.taskId == id } }
+        if (active?.isActive == true) return
+        if (projectId == null) {
+            pendingStoryboardProjectId = null
+            pendingStoryboardShotId = null
+            _linkedShot.value = null
+            _state.update { it.copy(storyboardShot = false) }
+            return
+        }
+        val project = container.projectStore.project(projectId) ?: return
+        val index = if (shotId != null) project.shots.indexOfFirst { it.id == shotId } else -1
+        if (shotId != null && (draft.cloud?.kind != "video" || index < 0 ||
+                project.shots[index].status == "running")) {
+            _state.update { it.copy(message = AppStrings.get(R.string.board_err_choose_workflow)) }
+            return
+        }
+        pendingStoryboardProjectId = projectId
+        pendingStoryboardShotId = shotId
+        _linkedShot.value = LinkedStudioShot(projectId, project.title, index + 1)
+        _state.update { current ->
+            current.copy(storyboardShot = shotId != null,
+                batchCount = if (shotId != null) 1 else current.batchCount)
         }
     }
 
@@ -422,10 +471,9 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         persistDraftNow(draft)
         val count = effectiveBatchCount(storyboard, _state.value.batchCount)
         val requests = (0 until count).map { index -> buildRequest(draft, cv, index) }
-        // Project budget gate (#57 P3): a shot belonging to a project with a
-        // budget is blocked BEFORE the paid-confirmation dialog when this
-        // submission would push the project's estimated spend past it.
-        if (storyboard) {
+        // Project budget applies to *all* project-linked stages, including standalone
+        // image/audio prep with no Shot. Never silently bypass the budget via recipes.
+        if (projectId != null) {
             val budget = container.projectStore.project(projectId)?.budget
             val stats = taskCostStats(tasks.value, projectId)
             when (val decision = BudgetGate.check(stats.costSum, requests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }, budget)) {

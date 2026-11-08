@@ -9,7 +9,6 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
 import androidx.compose.material.icons.Icons
@@ -17,6 +16,10 @@ import androidx.compose.material.icons.outlined.Build
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material3.Icon
 import androidx.compose.material3.Checkbox
+import androidx.compose.material3.AlertDialog
+import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.setValue
+import androidx.compose.runtime.getValue
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
@@ -25,7 +28,6 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
-import androidx.compose.runtime.getValue
 import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -47,6 +49,7 @@ import com.comfyremote.app.ui.components.IrisCard
 import com.comfyremote.app.ui.components.IrisPrimaryButton
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.StatusChip
+import com.comfyremote.app.ui.components.IrisTextField
 
 /**
  * The AI director hub: local rule checks, frame-strip continuity and the
@@ -70,6 +73,7 @@ fun DirectorScreen(
 
     val continuity by viewModel.continuity.collectAsState()
     val planState by viewModel.planState.collectAsState()
+    var editingPlanIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(projectId) { viewModel.loadContinuity(projectId) }
     DisposableEffect(viewModel) { onDispose { viewModel.clearContinuity() } }
 
@@ -250,7 +254,7 @@ fun DirectorScreen(
             }
             item("plan-hint") {
                 Text(
-                    stringResource(R.string.proj_director_plan_hint),
+                    stringResource(R.string.studio_ai_more_context),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                 )
@@ -296,6 +300,21 @@ fun DirectorScreen(
                     )
                 }
             } else {
+                item("plan-duration-summary") {
+                    val proposedSeconds = planState.suggestions.withIndex()
+                        .filter { it.index in planState.selected }
+                        .sumOf { it.value.suggestedSeconds ?: 0 }
+                    val existingSeconds = project.shots.sumOf { it.plannedDurationSeconds ?: 0 }
+                    Text(
+                        stringResource(
+                            R.string.studio_ai_duration_summary,
+                            existingSeconds + proposedSeconds,
+                            project.targetDurationSeconds ?: 0,
+                        ),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
+                }
                 items(planState.suggestions.size, key = { "plan-$it" }) { index ->
                     val suggestion = planState.suggestions[index]
                     Row(
@@ -326,6 +345,9 @@ fun DirectorScreen(
                                 }
                             }
                         }
+                        TextButton(onClick = { editingPlanIndex = index }) {
+                            Text(stringResource(R.string.studio_ai_edit_plan))
+                        }
                     }
                 }
                 item("plan-apply") {
@@ -345,6 +367,20 @@ fun DirectorScreen(
             }
         }
     }
+
+    editingPlanIndex?.let { index ->
+        planState.suggestions.getOrNull(index)?.let { suggestion ->
+            EditStudioDirectorPlan(
+                suggestion = suggestion,
+                onDismiss = { editingPlanIndex = null },
+                onApply = { prompt, camera, duration ->
+                    viewModel.editPlanSuggestion(index, prompt, camera, duration)
+                    editingPlanIndex = null
+                },
+            )
+        }
+    }
+
 }
 
 @Composable
@@ -371,4 +407,52 @@ private fun seamTone(diff: Double): ChipTone = when {
     diff < DirectorChecks.CONTINUITY_DIFF_THRESHOLD -> ChipTone.Success
     diff < DirectorChecks.CONTINUITY_DIFF_THRESHOLD * 2 -> ChipTone.Warning
     else -> ChipTone.Error
+}
+
+@Composable
+private fun EditStudioDirectorPlan(
+    suggestion: DirectorPrompts.SuggestedShot,
+    onDismiss: () -> Unit,
+    onApply: (String, String, Int?) -> Unit,
+) {
+    var prompt by remember(suggestion) { mutableStateOf(suggestion.prompt) }
+    var camera by remember(suggestion) { mutableStateOf(suggestion.cameraNotes) }
+    var duration by remember(suggestion) { mutableStateOf(suggestion.suggestedSeconds?.toString().orEmpty()) }
+    val seconds = duration.trim().takeIf(String::isNotBlank)?.toIntOrNull()
+    val validDuration = duration.isBlank() || (seconds != null && seconds in 1..3600)
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.studio_ai_edit_plan)) },
+        text = {
+            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                IrisTextField(
+                    value = prompt, onValueChange = { prompt = it },
+                    label = stringResource(R.string.gen_prompt),
+                    minLines = 3, maxLines = 5, modifier = Modifier.fillMaxWidth(),
+                )
+                IrisTextField(
+                    value = camera, onValueChange = { camera = it },
+                    label = stringResource(R.string.studio_ai_camera),
+                    minLines = 2, maxLines = 4, modifier = Modifier.fillMaxWidth(),
+                )
+                IrisTextField(
+                    value = duration, onValueChange = { duration = it },
+                    label = stringResource(R.string.studio_ai_seconds),
+                    singleLine = true, modifier = Modifier.fillMaxWidth(),
+                )
+                Text(stringResource(R.string.studio_ai_seconds_hint),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+        },
+        confirmButton = {
+            TextButton(
+                onClick = { onApply(prompt, camera, seconds) },
+                enabled = prompt.isNotBlank() && validDuration,
+            ) { Text(stringResource(R.string.action_save)) }
+        },
+        dismissButton = {
+            TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_cancel)) }
+        },
+    )
 }

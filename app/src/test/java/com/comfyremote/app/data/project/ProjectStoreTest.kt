@@ -81,6 +81,108 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun historyLinkedTakeIsCandidateAndKeepsTimelineAndSelectedVersionSafe() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "A scene")!!
+        assertTrue(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/final.mp4", prompt = "Take")))
+        val after = store.project(project.id)!!.shots.single()
+        assertEquals("draft", after.status)
+        assertNull(after.resultPath)
+        assertNull(after.selectedTakeId)
+        assertEquals("done", after.takes.single().status)
+        assertTrue("/history/final.mp4" in store.referencedMediaPaths())
+        assertFalse(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/final.mp4")))
+        assertEquals(1, store.project(project.id)!!.shots.single().takes.size)
+
+        assertTrue(store.addClip(project.id, TrackKind.VIDEO,
+            TimelineClip(sourcePath = "/history/final.mp4", sourceOutMs = 5000)))
+        assertTrue(store.deleteTake(project.id, shot.id, after.takes.single().id))
+        assertTrue("/history/final.mp4" in store.referencedMediaPaths())
+        assertEquals(1, store.project(project.id)!!.timeline!!.videoTrack.size)
+    }
+
+    @Test
+    fun existingTakeCannotOverwriteARunningPaidShot() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "A scene")!!
+        assertTrue(store.attachTask(project.id, shot.id, "paid-task"))
+        assertFalse(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/other.mp4")))
+        val unchanged = store.project(project.id)!!.shots.single()
+        assertEquals("paid-task", unchanged.taskId)
+        assertEquals(1, unchanged.takes.size)
+        assertEquals("running", unchanged.takes.single().status)
+    }
+
+    @Test
+    fun appliedAiShotsInheritFrameRelayButNotUntrustedSourceTaskIdentity() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val first = store.addShot(project.id, "opening")!!
+        assertTrue(store.updateShot(project.id, first.id) {
+            it.copy(lastFramePath = "/history/last-frame.png")
+        })
+        assertTrue(store.addPlannedShots(project.id, listOf(
+            ProjectShot(
+                prompt = "AI proposed shot",
+                cameraNotes = "following shot",
+                plannedDurationSeconds = 12,
+                taskId = "untrusted-task",
+                status = "running",
+                resultPath = "/untrusted.mp4",
+            ),
+        )))
+        val next = store.project(project.id)!!.shots.last()
+        assertEquals("draft", next.status)
+        assertEquals("/history/last-frame.png", next.referencePath)
+        assertNull(next.taskId)
+        assertNull(next.resultPath)
+    }
+
+    @Test
+    fun directorPlanAppliesAsOneValidatedLocalOperationWithoutPaidTask() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        assertTrue(store.addPlannedShots(project.id, listOf(
+            ProjectShot(prompt = "one", plannedDurationSeconds = 10),
+            ProjectShot(prompt = "two", cameraNotes = "push in", plannedDurationSeconds = 12),
+        )))
+        assertEquals(listOf(10, 12), store.project(project.id)!!.shots.map { it.plannedDurationSeconds })
+        assertEquals(listOf("draft", "draft"), store.project(project.id)!!.shots.map { it.status })
+        assertTrue(store.project(project.id)!!.shots.all { it.taskId == null && it.takes.isEmpty() })
+        assertFalse(store.addPlannedShots(project.id, listOf(
+            ProjectShot(prompt = "not persisted"),
+            ProjectShot(prompt = " "),
+        )))
+        assertEquals(2, ProjectStore(File(temp.root, "projects.json")).projects.value.single().shots.size)
+    }
+
+    @Test
+    fun recipeAndIndependentStageModelsDoNotOverwriteShotOrGenerate() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "scene")!!
+        assertTrue(store.setWorkflowRecipe(project.id, StudioWorkflowRecipes.KEYFRAMES_AND_AUDIO))
+        assertTrue(store.setStageWorkflow(project.id, "image", "autodl:graphic"))
+        assertTrue(store.setStageWorkflow(project.id, "video", "replicate:video"))
+        assertTrue(store.setStageWorkflow(project.id, "audio", "autodl:audio"))
+        assertFalse(store.setStageWorkflow(project.id, "exe", "invalid"))
+        assertFalse(store.setWorkflowRecipe(project.id, "not-a-template"))
+        val saved = ProjectStore(File(temp.root, "projects.json")).projects.value.single()
+        assertEquals(StudioWorkflowRecipes.KEYFRAMES_AND_AUDIO, saved.workflowRecipeId)
+        assertEquals(3, saved.stageWorkflowPaths.size)
+        val untouched = saved.shots.single()
+        assertEquals(shot.id, untouched.id)
+        assertEquals("draft", untouched.status)
+        assertTrue(untouched.takes.isEmpty())
+        assertNull(untouched.taskId)
+    }
+
+    @Test
     fun nextShotWaitsForAnEarlierRunningShot() {
         val store = store()
         val project = store.create("Studio", "wf")!!

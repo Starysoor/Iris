@@ -7,6 +7,9 @@ import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.imePadding
@@ -16,6 +19,9 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.MaterialTheme
@@ -59,8 +65,11 @@ fun GenerateScreen(
     onBack: () -> Unit,
     onOpenTask: (String) -> Unit,
     onOpenCloudVideo: (String, String) -> Unit,
+    onOpenProject: (String) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
+    val linkedShot by viewModel.linkedShot.collectAsState()
+    val projects by viewModel.projects.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val appSettings = LocalAppSettings.current
     val draft = state.draft
@@ -109,6 +118,8 @@ fun GenerateScreen(
     var advancedOpen by rememberSaveable { mutableStateOf(appSettings.advancedExpandedByDefault) }
     var notesOpen by rememberSaveable { mutableStateOf(appSettings.notesExpandedByDefault) }
     var libraryOpen by remember { mutableStateOf(false) }
+    var linkPickerOpen by remember { mutableStateOf(false) }
+    var linkProjectId by remember { mutableStateOf<String?>(null) }
     var compareOpen by remember { mutableStateOf(false) }
     var viewingResult by remember { mutableStateOf<Int?>(null) }
     var selectedResult by rememberSaveable { mutableStateOf(0) }
@@ -190,6 +201,35 @@ fun GenerateScreen(
                     contentPadding = PaddingValues(horizontal = Spacing.gutter, vertical = Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(if (appSettings.compactUi) Spacing.sm else Spacing.md),
                 ) {
+                    if (linkedShot == null && projects.isNotEmpty()) {
+                        item("studio-optional-link") {
+                            InfoBanner(
+                                title = stringResource(R.string.studio_link_optional_title),
+                                text = stringResource(R.string.studio_link_optional_hint),
+                                tone = BannerTone.Info,
+                                actionLabel = stringResource(R.string.studio_link_choose),
+                                onAction = { linkProjectId = null; linkPickerOpen = true },
+                            )
+                        }
+                    }
+                    linkedShot?.let { linked ->
+                        item("studio-linked") {
+                            InfoBanner(
+                                title = if (linked.shotNumber > 0)
+                                    stringResource(R.string.studio_linked_title, linked.projectTitle, linked.shotNumber)
+                                else stringResource(R.string.studio_linked_project_title, linked.projectTitle),
+                                text = stringResource(R.string.studio_linked_detail),
+                                tone = BannerTone.Info,
+                                actionLabel = stringResource(R.string.studio_back_to_project),
+                                onAction = { onOpenProject(linked.projectId) },
+                            )
+                            if (!running) {
+                                TextButton(onClick = { viewModel.linkCurrentDraft(null, null) }) {
+                                    Text(stringResource(R.string.studio_link_unlink))
+                                }
+                            }
+                        }
+                    }
                     task?.let { t -> item("status") { GenerationStatusCard(t, running) } }
                     state.insight?.let { insight ->
                         item("workflow-insight") {
@@ -336,6 +376,51 @@ fun GenerateScreen(
                 }
             }
         }
+    }
+
+    if (linkPickerOpen) {
+        val selectedProject = projects.firstOrNull { it.id == linkProjectId }
+        AlertDialog(
+            onDismissRequest = { linkPickerOpen = false },
+            title = { Text(stringResource(R.string.studio_link_choose)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    if (selectedProject == null) {
+                        projects.forEach { project ->
+                            TextButton(onClick = { linkProjectId = project.id }) {
+                                Text(project.title)
+                            }
+                        }
+                    } else {
+                        TextButton(onClick = {
+                            viewModel.linkCurrentDraft(selectedProject.id, null)
+                            linkPickerOpen = false
+                        }) { Text(stringResource(R.string.studio_link_project_level)) }
+                        if (draft?.cloud?.kind == "video") {
+                            selectedProject.shots.forEachIndexed { index, shot ->
+                                TextButton(
+                                    onClick = {
+                                        viewModel.linkCurrentDraft(selectedProject.id, shot.id)
+                                        linkPickerOpen = false
+                                    },
+                                    enabled = shot.status != "running",
+                                ) {
+                                    Text(stringResource(R.string.studio_link_shot, index + 1) +
+                                        " · " + shot.prompt.take(44))
+                                }
+                            }
+                        }
+                        TextButton(onClick = { linkProjectId = null }) {
+                            Text(stringResource(R.string.action_back))
+                        }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { linkPickerOpen = false }) {
+                Text(stringResource(R.string.action_cancel))
+            } },
+        )
     }
 
     state.aiResult?.let { result ->

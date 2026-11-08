@@ -35,6 +35,8 @@ data class ProjectShot(
     val prompt: String = "",
     /** Optional camera/blocking description for the shot workshop. */
     val cameraNotes: String? = null,
+    /** Director's intended length for the scene, not a guaranteed single-model clip duration. */
+    val plannedDurationSeconds: Int? = null,
     /** Reference image for this shot, already copied to app storage when set. */
     val referencePath: String? = null,
     /** True when the user picked the reference manually; auto updates must not overwrite it. */
@@ -159,6 +161,10 @@ data class VideoProject(
     val workflowPath: String = "",
     val providerId: String = "",
     val defaultValues: Map<String, String> = emptyMap(),
+    /** Selected user-operated workflow recipe; optional for older projects. */
+    val workflowRecipeId: String = StudioWorkflowRecipes.TEXT_TO_VIDEO,
+    /** Explicit per-stage cloud model choices, indexed by image/video/audio kind. */
+    val stageWorkflowPaths: Map<String, String> = emptyMap(),
     /** Optional "tail frame relay" gameplay; off leaves each shot's reference manual. */
     val chainFrames: Boolean = true,
     /** Soft budget cap for cloud spend; stored only in P0, no enforcement yet. */

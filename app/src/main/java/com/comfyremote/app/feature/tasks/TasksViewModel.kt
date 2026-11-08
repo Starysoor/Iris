@@ -27,6 +27,8 @@ data class TasksUiState(
     val filter: TaskFilter = TaskFilter.ALL,
     val serverUrl: String? = null,
     val localQueuePaused: Boolean = false,
+    /** Null = all, empty = independent, otherwise the Studio project ID. */
+    val projectFilter: String? = null,
 ) {
     val visible: List<GenerationTask>
         get() = tasks.asSequence()
@@ -40,6 +42,7 @@ data class TasksUiState(
                 }
             }
             .filter { serverUrl == null || it.request.serverUrl == serverUrl }
+            .filter { projectFilter == null || it.request.storyboardProjectId.orEmpty() == projectFilter }
             .sortedWith(compareByDescending<GenerationTask> { it.isActive }.thenByDescending { it.createdAt })
             .toList()
 
@@ -51,18 +54,21 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
     private val _filter = MutableStateFlow(TaskFilter.ALL)
     private val _serverUrl = MutableStateFlow<String?>(null)
+    private val _projectFilter = MutableStateFlow<String?>(null)
+    val projects = container.projectStore.projects
 
     val uiState: StateFlow<TasksUiState> = combine(
         tasks,
         _filter,
         _serverUrl,
         container.generationManager.localQueuePaused,
-    ) { list, filter, serverUrl, paused ->
-        TasksUiState(list, filter, serverUrl, paused)
+        _projectFilter,
+    ) { list, filter, serverUrl, paused, projectFilter ->
+        TasksUiState(list, filter, serverUrl, paused, projectFilter)
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        TasksUiState(tasks.value, _filter.value, _serverUrl.value, container.generationManager.localQueuePaused.value),
+        TasksUiState(tasks.value, _filter.value, _serverUrl.value, container.generationManager.localQueuePaused.value, _projectFilter.value),
     )
 
     private val _message = MutableStateFlow<String?>(null)
@@ -83,6 +89,7 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setFilter(filter: TaskFilter) { _filter.value = filter }
     fun setServerFilter(url: String?) { _serverUrl.value = url }
+    fun setProjectFilter(projectId: String?) { _projectFilter.value = projectId }
     fun toggleLocalQueuePaused() = container.generationManager.toggleLocalQueuePaused()
 
     fun delete(id: String) { container.generationManager.deleteTask(id) }

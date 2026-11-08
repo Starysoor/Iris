@@ -52,6 +52,7 @@ fun TasksScreen(
     onOpenTask: (String) -> Unit,
 ) {
     val ui by viewModel.uiState.collectAsState()
+    val projects by viewModel.projects.collectAsState()
     val message by viewModel.message.collectAsState()
     val tasks = ui.visible
     val hasFinished = ui.tasks.any { it.isTerminal }
@@ -68,6 +69,7 @@ fun TasksScreen(
     var confirmClearFinished by remember { mutableStateOf(false) }
     var confirmCancelQueued by remember { mutableStateOf(false) }
     var serverMenu by remember { mutableStateOf(false) }
+    var projectMenu by remember { mutableStateOf(false) }
     var actionMenu by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
 
@@ -159,6 +161,35 @@ fun TasksScreen(
                                 text = { Text(viewModel.serverLabel(url)) },
                                 onClick = { viewModel.setServerFilter(url); serverMenu = false },
                             )
+                        }
+                    }
+                }
+                if (ui.tasks.any { it.request.storyboardProjectId != null }) {
+                    Box(Modifier.weight(1f, fill = false)) {
+                        IrisChip(
+                            label = when (val id = ui.projectFilter) {
+                                null -> stringResource(R.string.studio_tasks_all)
+                                "" -> stringResource(R.string.studio_tasks_independent)
+                                else -> projects.firstOrNull { it.id == id }?.title ?: id
+                            },
+                            selected = ui.projectFilter != null,
+                            onClick = { projectMenu = true },
+                        )
+                        DropdownMenu(expanded = projectMenu, onDismissRequest = { projectMenu = false }) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_tasks_all)) },
+                                onClick = { viewModel.setProjectFilter(null); projectMenu = false },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_tasks_independent)) },
+                                onClick = { viewModel.setProjectFilter(""); projectMenu = false },
+                            )
+                            ui.tasks.mapNotNull { it.request.storyboardProjectId }.distinct().forEach { id ->
+                                DropdownMenuItem(
+                                    text = { Text(projects.firstOrNull { it.id == id }?.title ?: id) },
+                                    onClick = { viewModel.setProjectFilter(id); projectMenu = false },
+                                )
+                            }
                         }
                     }
                 }

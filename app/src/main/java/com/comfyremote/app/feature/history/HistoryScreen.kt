@@ -26,6 +26,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
+import androidx.compose.material3.SnackbarResult
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
@@ -43,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.comfyremote.app.HistoryItem
 import com.comfyremote.app.R
 import com.comfyremote.app.data.reference.ReferenceRole
+import com.comfyremote.app.data.project.ProjectMediaLinks
 import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.feature.generate.MediaViewerDialog
 import com.comfyremote.app.feature.generate.shareMedia
@@ -61,6 +63,7 @@ import com.comfyremote.app.ui.components.TextAction
 fun HistoryScreen(
     viewModel: HistoryViewModel,
     onReuse: (DraftTransfer) -> Unit,
+    onOpenProject: (String) -> Unit,
 ) {
     val history by viewModel.items.collectAsState()
     val historyLoadError by viewModel.historyLoadError.collectAsState()
@@ -68,6 +71,7 @@ fun HistoryScreen(
     val favoritesOnly by viewModel.favoritesOnly.collectAsState()
     val message by viewModel.message.collectAsState()
     val storyboardProjects by viewModel.storyboardProjects.collectAsState()
+    val linkedResult by viewModel.linkedResult.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var selecting by remember { mutableStateOf(false) }
     var selected by remember { mutableStateOf(setOf<String>()) }
@@ -75,9 +79,22 @@ fun HistoryScreen(
     var viewingMediaPath by remember { mutableStateOf<String?>(null) }
     var projectPicker by remember { mutableStateOf<Pair<HistoryItem, String>?>(null) }
     var rolePicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
+    var actionPicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
+    var shotPicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() } }
+    LaunchedEffect(linkedResult) {
+        linkedResult?.let { linked ->
+            val action = snackbar.showSnackbar(
+                message = linked.description,
+                actionLabel = context.getString(R.string.studio_back_to_project),
+                withDismissAction = true,
+            )
+            if (action == SnackbarResult.ActionPerformed) onOpenProject(linked.projectId)
+            viewModel.clearLinkedResult()
+        }
+    }
     BackHandler(enabled = selecting) { selecting = false; selected = emptySet() }
 
     IrisScaffold(
@@ -212,7 +229,7 @@ fun HistoryScreen(
                     Column(Modifier.verticalScroll(rememberScrollState())) {
                         storyboardProjects.forEach { project ->
                             TextButton(onClick = {
-                                rolePicker = Triple(item, path, project.id)
+                                actionPicker = Triple(item, path, project.id)
                                 projectPicker = null
                             }) { Text(project.title) }
                         }
@@ -225,6 +242,68 @@ fun HistoryScreen(
                     Text(stringResource(R.string.action_cancel))
                 }
             },
+        )
+    }
+
+    actionPicker?.let { (item, path, projectId) ->
+        val kind = ProjectMediaLinks.kind(path)
+        AlertDialog(
+            onDismissRequest = { actionPicker = null },
+            title = { Text(stringResource(R.string.studio_history_pick_action)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    TextButton(onClick = {
+                        rolePicker = Triple(item, path, projectId)
+                        actionPicker = null
+                    }) { Text(stringResource(R.string.studio_history_as_asset)) }
+                    if (kind == ProjectMediaLinks.Kind.VIDEO) {
+                        TextButton(onClick = {
+                            shotPicker = Triple(item, path, projectId)
+                            actionPicker = null
+                        }) { Text(stringResource(R.string.studio_history_as_take)) }
+                    }
+                    if (ProjectMediaLinks.track(path) != null) {
+                        TextButton(onClick = {
+                            viewModel.addToProjectTimeline(projectId, item, path)
+                            actionPicker = null
+                        }) { Text(stringResource(R.string.studio_history_as_timeline)) }
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { actionPicker = null }) {
+                Text(stringResource(R.string.action_cancel))
+            } },
+        )
+    }
+
+    shotPicker?.let { (item, path, projectId) ->
+        val project = storyboardProjects.firstOrNull { it.id == projectId }
+        AlertDialog(
+            onDismissRequest = { shotPicker = null },
+            title = { Text(stringResource(R.string.studio_history_pick_shot)) },
+            text = {
+                Column(Modifier.verticalScroll(rememberScrollState())) {
+                    project?.shots?.forEachIndexed { index, shot ->
+                        TextButton(
+                            onClick = {
+                                viewModel.attachAsTake(projectId, shot.id, item, path)
+                                shotPicker = null
+                            },
+                            enabled = shot.status != "running",
+                        ) {
+                            Text("${index + 1}. " + shot.prompt.take(55).ifBlank { "#${index + 1}" })
+                        }
+                    }
+                    if (project?.shots.isNullOrEmpty()) {
+                        Text(stringResource(R.string.studio_next_add_shots))
+                    }
+                }
+            },
+            confirmButton = {},
+            dismissButton = { TextButton(onClick = { shotPicker = null }) {
+                Text(stringResource(R.string.action_cancel))
+            } },
         )
     }
 

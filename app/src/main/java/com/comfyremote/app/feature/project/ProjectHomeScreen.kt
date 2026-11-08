@@ -44,6 +44,7 @@ import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.project.taskCostStats
+import com.comfyremote.app.data.project.StudioJourney
 import com.comfyremote.app.feature.generate.MediaThumbnail
 import com.comfyremote.app.feature.tasks.ElapsedText
 import com.comfyremote.app.feature.tasks.RunningNodeProgress
@@ -81,9 +82,12 @@ fun ProjectHomeScreen(
     onOpenTimeline: () -> Unit,
     onOpenDirector: () -> Unit,
     onOpenTask: (String) -> Unit,
+    onOpenStage: (String, String) -> Unit,
+    onOpenCreate: () -> Unit,
 ) {
     val projects by viewModel.projects.collectAsState()
     val workflows by viewModel.workflows.collectAsState()
+    val stageWorkflows by viewModel.stageWorkflows.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val message by viewModel.message.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
@@ -156,6 +160,13 @@ fun ProjectHomeScreen(
             item("progress") {
                 ProgressChips(project)
             }
+            item("next-step") {
+                StudioNextStep(
+                    project = project,
+                    onOpenWorkspace = onOpenWorkspace,
+                    onOpenTimeline = onOpenTimeline,
+                )
+            }
             item("workspace") {
                 IrisPrimaryButton(
                     text = stringResource(R.string.proj_open_workspace),
@@ -169,6 +180,23 @@ fun ProjectHomeScreen(
                     TextAction(stringResource(R.string.proj_open_timeline), onClick = onOpenTimeline)
                     TextAction(stringResource(R.string.proj_open_director), onClick = onOpenDirector)
                 }
+            }
+            item("workflow-recipe") {
+                StudioRecipeCard(
+                    project = project,
+                    models = stageWorkflows,
+                    onChooseRecipe = { viewModel.setWorkflowRecipe(project.id, it) },
+                    onChooseModel = { kind, path -> viewModel.setStageWorkflow(project.id, kind, path) },
+                    onRunStage = { kind ->
+                        viewModel.openStage(project.id, kind)?.let { (path, name) ->
+                            onOpenStage(path, name)
+                        }
+                    },
+                    onOpenAssets = onOpenLibrary,
+                    onOpenShots = onOpenWorkspace,
+                    onOpenTimeline = onOpenTimeline,
+                    onOpenCreate = onOpenCreate,
+                )
             }
             item("assets-heading") {
                 SectionHeader(stringResource(R.string.board_assets)) {
@@ -396,5 +424,46 @@ private fun ProjectTaskRow(
             }
         }
         RunningNodeProgress(task)
+    }
+}
+
+/** Next action is derived from real project state; asset import is recommended, not required. */
+@Composable
+private fun StudioNextStep(
+    project: com.comfyremote.app.data.project.VideoProject,
+    onOpenWorkspace: () -> Unit,
+    onOpenTimeline: () -> Unit,
+) {
+    val progress = StudioJourney.inspect(project)
+    val nextLabel = when (progress.next) {
+        StudioJourney.NextStep.ADD_SHOTS -> R.string.studio_next_add_shots
+        StudioJourney.NextStep.GENERATE -> R.string.studio_next_generate
+        StudioJourney.NextStep.ARRANGE -> R.string.studio_next_arrange
+        StudioJourney.NextStep.REVIEW -> R.string.studio_next_review
+    }
+    IrisCard {
+        Text(stringResource(R.string.studio_progress_title), style = MaterialTheme.typography.titleMedium)
+        Text(
+            stringResource(
+                R.string.studio_progress_detail,
+                progress.completedShots, progress.totalShots,
+                project.assets.size, progress.timelineClips,
+            ),
+            style = MaterialTheme.typography.bodySmall,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+        )
+        if (project.assets.isEmpty()) {
+            Text(
+                stringResource(R.string.studio_assets_optional),
+                style = IrisType.metaSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+        }
+        IrisTonalButton(
+            text = stringResource(nextLabel),
+            onClick = if (progress.next == StudioJourney.NextStep.ARRANGE ||
+                progress.next == StudioJourney.NextStep.REVIEW) onOpenTimeline else onOpenWorkspace,
+            icon = Icons.Outlined.Movie,
+        )
     }
 }

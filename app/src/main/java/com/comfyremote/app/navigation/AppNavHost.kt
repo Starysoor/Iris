@@ -209,7 +209,11 @@ private fun AppNavHost(
             }
             composable(Routes.HISTORY) {
                 val vm: HistoryViewModel = viewModel(factory = factory)
-                HistoryScreen(vm, onReuse = ::openTransfer)
+                HistoryScreen(
+                    vm,
+                    onReuse = ::openTransfer,
+                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                )
             }
             composable(Routes.PROJECTS) {
                 val vm: ProjectViewModel = viewModel(factory = factory)
@@ -248,6 +252,8 @@ private fun AppNavHost(
                         )
                     },
                     onOpenTask = { taskId -> navController.navigate(Routes.task(taskId)) },
+                    onOpenStage = { path, name -> navController.navigate(Routes.generate(path, name)) },
+                    onOpenCreate = { navigateTopLevel(navController, Routes.CREATE) },
                 )
             }
             composable(
@@ -312,6 +318,7 @@ private fun AppNavHost(
                     onOpenCloudVideo = { path, name ->
                         navController.navigate(Routes.generate(path, name))
                     },
+                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
                 )
             }
             composable(

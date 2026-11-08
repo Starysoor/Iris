@@ -50,6 +50,8 @@ object ProjectCodec {
         .put("workflowPath", project.workflowPath)
         .put("providerId", project.providerId)
         .put("defaultValues", JSONObject(project.defaultValues))
+        .put("workflowRecipeId", project.workflowRecipeId)
+        .put("stageWorkflowPaths", JSONObject(project.stageWorkflowPaths))
         .put("chainFrames", project.chainFrames)
         .put("budget", project.budget ?: JSONObject.NULL)
         .put("createdAt", project.createdAt)
@@ -89,6 +91,10 @@ object ProjectCodec {
             workflowPath = o.optString("workflowPath"),
             providerId = o.optString("providerId"),
             defaultValues = stringMap(o.optJSONObject("defaultValues")),
+            workflowRecipeId = o.optString("workflowRecipeId")
+                .takeIf(StudioWorkflowRecipes::supports) ?: StudioWorkflowRecipes.TEXT_TO_VIDEO,
+            stageWorkflowPaths = stringMap(o.optJSONObject("stageWorkflowPaths"))
+                .filterKeys(StudioWorkflowRecipes::isModelKind),
             chainFrames = o.optBoolean("chainFrames", true),
             budget = nullableDouble(o, "budget"),
             shots = shots,
@@ -104,6 +110,7 @@ object ProjectCodec {
         .put("id", shot.id)
         .put("prompt", shot.prompt)
         .put("cameraNotes", shot.cameraNotes ?: JSONObject.NULL)
+        .put("plannedDurationSeconds", shot.plannedDurationSeconds ?: JSONObject.NULL)
         .put("referencePath", shot.referencePath ?: JSONObject.NULL)
         .put("referenceManual", shot.referenceManual)
         .put("referenceRole", shot.referenceRole.name)
@@ -136,6 +143,7 @@ object ProjectCodec {
             id = o.optString("id", UUID.randomUUID().toString()),
             prompt = o.optString("prompt"),
             cameraNotes = nullableString(o, "cameraNotes"),
+            plannedDurationSeconds = nullableInt(o, "plannedDurationSeconds")?.takeIf { it in 1..3600 },
             referencePath = nullableString(o, "referencePath"),
             referenceManual = o.optBoolean("referenceManual", false),
             referenceRole = ReferenceRole.fromStorage(o.optString("referenceRole")),
