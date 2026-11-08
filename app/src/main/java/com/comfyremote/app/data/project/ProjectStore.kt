@@ -148,6 +148,35 @@ class ProjectStore internal constructor(private val file: File) {
         }
     }
 
+    /**
+     * Save one explicit assignment without altering any existing tasks or Takes.
+     * Null removes the binding. Asset ownership is checked before persistence.
+     */
+    fun setStageMediaBinding(
+        projectId: String,
+        workflowPath: String,
+        fieldName: String,
+        assetId: String?,
+    ): Boolean = synchronized(lock) {
+        if (workflowPath.isBlank() || fieldName.isBlank()) return@synchronized false
+        var valid = true
+        val persisted = updateLocked(projectId) { project ->
+            if (assetId != null && project.assets.none { it.id == assetId }) {
+                valid = false
+                return@updateLocked project
+            }
+            val retained = project.stageMediaBindings.filterNot {
+                it.workflowPath == workflowPath && it.fieldName == fieldName
+            }
+            project.copy(
+                stageMediaBindings = if (assetId == null) retained
+                    else retained + StudioStageMediaBinding(workflowPath, fieldName, assetId),
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+        valid && persisted
+    }
+
     /** Toggles the optional tail-frame relay. Turning it off clears automatic refs only. */
     fun setChainFrames(projectId: String, enabled: Boolean): Boolean = update(projectId) { project ->
         project.copy(
