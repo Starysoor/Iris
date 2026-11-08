@@ -96,4 +96,10 @@
     <string name="studio_workflow_none">No matching video workflow</string>
     <string name="studio_workflow_notice">Only configured video-capable models are shown. For images or audio, use Create and link the result to this project.</string>
     <string name="studio_ai_more_context">AI uses shot status, characters, scenes, duration and selected takes. Verify every suggestion before applying.</string>
+    <!-- AI director editable plan (#101) -->
+    <string name="studio_ai_edit_plan">Edit shot</string>
+    <string name="studio_ai_camera">Camera / blocking / continuity</string>
+    <string name="studio_ai_seconds">Intended scene length (seconds)</string>
+    <string name="studio_ai_seconds_hint">Narrative duration can require multiple generated clips; the model may not support this in one pass.</string>
+    <string name="studio_ai_duration_summary">Planned narrative duration: %1$d s / target %2$d s. Confirm model clip limits and continuity.</string>
 </resources>
