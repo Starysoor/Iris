@@ -77,4 +77,7 @@ if grep -q "Process: $PKG" "$EVIDENCE/android-runtime-errors.log"; then
   exit 1
 fi
 
-echo "PASS: emulator process lifecycle smoke checks"
+echo "QA step 7: verify real MP4 export and parallel audio mixing"
+bash tools/qa_audio_mix_fixture.sh "$EVIDENCE"
+
+echo "PASS: emulator process lifecycle and media export checks"

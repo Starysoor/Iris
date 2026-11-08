@@ -28,6 +28,8 @@ object ExportPlanBuilder {
         val expectedDurationMs: Long,
         /** Out-of-bounds trim windows; caller must refuse to export these clips. */
         val invalidTrims: List<String> = emptyList(),
+        /** Audio-only overlay items running in parallel with the video sequence. */
+        val audioItems: List<Item> = emptyList(),
     ) {
         val isEmpty: Boolean get() = items.isEmpty()
     }
@@ -47,7 +49,10 @@ object ExportPlanBuilder {
         val items = mutableListOf<Item>()
         val skipped = mutableListOf<String>()
         val invalid = mutableListOf<String>()
-        timeline.videoTrack.forEach { clip ->
+        // The two tracks are independent sequences; never concatenate audio after video.
+        fun readTrack(clips: List<TimelineClip>): List<Item> {
+            val trackItems = mutableListOf<Item>()
+            clips.forEach { clip ->
             if (clip.sourcePath !in existingPaths) {
                 skipped += clip.sourceLabel.ifBlank { clip.sourcePath.substringAfterLast('/') }
                 return@forEach
@@ -59,7 +64,7 @@ object ExportPlanBuilder {
                 invalid += clip.sourceLabel.ifBlank { clip.sourcePath.substringAfterLast('/') }
                 return@forEach
             }
-            items += Item(
+            trackItems += Item(
                 clipId = clip.id,
                 sourcePath = clip.sourcePath,
                 inMs = inMs,
@@ -68,12 +73,30 @@ object ExportPlanBuilder {
                 volume = if (clip.muted) 0f else clip.volume.coerceIn(0f, 2f),
                 muted = clip.muted,
             )
+            }
+            return trackItems
+        }
+        items += readTrack(timeline.videoTrack)
+        // The video track defines the final movie duration. Extra audio is trimmed
+        // rather than extending the movie with black/silent frames.
+        val expectedDuration = items.sumOf { it.durationMs }
+        val audio = mutableListOf<Item>()
+        var remainingMs = expectedDuration
+        for (item in readTrack(timeline.audioTrack)) {
+            if (remainingMs <= 0L) break
+            val fitted = if (item.durationMs <= remainingMs) item else item.copy(
+                outMs = (item.inMs + kotlin.math.ceil(remainingMs * item.speed).toLong())
+                    .coerceAtMost(item.outMs).coerceAtLeast(item.inMs + 1),
+            )
+            audio += fitted
+            remainingMs -= fitted.durationMs
         }
         return Plan(
             items = items,
             skippedMissing = skipped,
-            expectedDurationMs = items.sumOf { it.durationMs },
+            expectedDurationMs = expectedDuration,
             invalidTrims = invalid,
+            audioItems = audio,
         )
     }
 }

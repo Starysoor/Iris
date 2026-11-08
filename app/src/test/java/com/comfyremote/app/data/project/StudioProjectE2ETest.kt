@@ -109,11 +109,14 @@ class StudioProjectE2ETest {
 
         val plan = ExportPlanBuilder.build(
             restored.timeline!!,
-            existingPaths = sourcePaths,
-            sourceDurationsMs = sourcePaths.associateWith { 10_000L },
+            existingPaths = sourcePaths + "/mock/score.wav",
+            sourceDurationsMs = sourcePaths.associateWith { 10_000L } + ("/mock/score.wav" to 120_000L),
         )
         assertFalse(plan.isEmpty)
         assertEquals(12, plan.items.size)
+        assertEquals(1, plan.audioItems.size)
+        assertEquals("tlc:music", plan.audioItems.single().clipId)
+        assertEquals(120_000L, plan.audioItems.single().durationMs)
         assertTrue(plan.skippedMissing.isEmpty())
         assertTrue(plan.invalidTrims.isEmpty())
         assertEquals(120_000L, plan.expectedDurationMs)

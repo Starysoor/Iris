@@ -77,7 +77,7 @@
     <string name="proj_timeline_duration">Total %1$s</string>
     <string name="proj_timeline_video_clips">Video %1$d</string>
     <string name="proj_timeline_audio_clips">Audio %1$d</string>
-    <string name="proj_timeline_audio_export_note">Audio-track clips are stored with the project but do not participate in MP4 export yet (engine limitation of the current media3 version).</string>
+    <string name="proj_timeline_audio_export_note">Audio-track clips are mixed with the original video audio when exporting. This editor has one sequential overlay track; audio beyond the video cut is trimmed.</string>
     <string name="proj_timeline_add_video">Add video clip</string>
     <string name="proj_timeline_add_audio">Add audio clip</string>
     <string name="proj_timeline_add">Add</string>
@@ -97,7 +97,7 @@
     <string name="proj_timeline_mute_hint">Silences the own audio of this clip in the export</string>
     <string name="proj_timeline_muted">MUTED</string>
     <string name="proj_timeline_preview">Preview</string>
-    <string name="proj_timeline_preview_note">Preview plays the video track in order with trims applied; speed, volume and mute take full effect in the export.</string>
+    <string name="proj_timeline_preview_note">Preview plays the video track only, with trims applied. Independent audio overlay, speed, gain and mute are rendered in the exported MP4.</string>
     <string name="proj_timeline_unreadable">Cannot read that media file</string>
     <string name="proj_export_start">Export MP4</string>
     <string name="proj_export_title">Export movie</string>
