@@ -52,6 +52,37 @@ class StudioStagePreflightTest {
     }
 
     @Test
+    fun twoRequiredFramesCannotBeCountedAsFilledByTheSameGenericAsset() {
+        val bothFrames = workflow(rules = listOf(
+            CloudInputRule("first", "image", required = true,
+                referenceRole = ReferenceRole.START_FRAME),
+            CloudInputRule("last", "image", required = true,
+                referenceRole = ReferenceRole.END_FRAME),
+        ))
+        val single = ProjectAsset(
+            path = "/tmp/generic.png",
+            kind = AssetKind.IMAGE,
+            role = ReferenceRole.GENERIC_REFERENCE,
+        )
+        val missing = StudioStagePreflight.inspect(bothFrames, "video", listOf(single))
+        assertEquals(1, missing.potentialMissingMediaSlots.size)
+        assertEquals(StudioStagePreflight.Support.CONFIGURABLE, missing.support)
+        val ready = StudioStagePreflight.inspect(
+            bothFrames, "video",
+            listOf(single, ProjectAsset(
+                path = "/tmp/end.png",
+                kind = AssetKind.IMAGE,
+                role = ReferenceRole.END_FRAME,
+            )),
+        )
+        assertTrue(ready.potentialMissingMediaSlots.isEmpty())
+        // Duplicated records for the same path cannot impersonate two files.
+        assertEquals(1, StudioStagePreflight.inspect(
+            bothFrames, "video", listOf(single, single.copy(id = "duplicate"))
+        ).potentialMissingMediaSlots.size)
+    }
+
+    @Test
     fun requiredVideoUploadIsBlockedBecauseCreateCannotEditVideoFields() {
         val report = StudioStagePreflight.inspect(
             workflow(rules = listOf(
