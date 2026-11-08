@@ -129,4 +129,5 @@
     <string name="studio_link_unlink">Unlink future submissions</string>
     <string name="studio_link_project_level">Link to this project only</string>
     <string name="studio_link_shot">Use shot %1$d</string>
+    <string name="studio_shot_planned_seconds">Planned: %1$d s</string>
 </resources>
