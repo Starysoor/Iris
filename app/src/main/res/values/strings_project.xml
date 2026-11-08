@@ -99,7 +99,8 @@
     <string name="proj_timeline_mute_hint">Silences the own audio of this clip in the export</string>
     <string name="proj_timeline_muted">MUTED</string>
     <string name="proj_timeline_preview">Preview</string>
-    <string name="proj_timeline_preview_note">Preview plays the video track only, with trims applied. Independent audio overlay, speed, gain and mute are rendered in the exported MP4.</string>
+    <string name="proj_timeline_preview_note">Preview first renders a temporary MP4 using the same video, audio, trim, speed, gain and mute engine as export. Longer projects can take time to prepare. Temporary media is discarded when closed.</string>
+    <string name="proj_timeline_preview_preparing">Preparing accurate preview: %1$d%%</string>
     <string name="proj_timeline_unreadable">Cannot read that media file</string>
     <string name="proj_export_start">Export MP4</string>
     <string name="proj_export_title">Export movie</string>
