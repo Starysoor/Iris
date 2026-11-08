@@ -21,6 +21,8 @@ data class DraftTransfer(
     val reuseAcrossWorkflows: Boolean = false,
     /** Multiple local reference images for consecutive image inputs. */
     val referenceLocalPaths: List<String> = emptyList(),
+    /** Verified provider input field names to explicit local media files (image/audio). */
+    val referenceFieldPaths: Map<String, String> = emptyMap(),
 )
 
 class DraftTransferRepository {
