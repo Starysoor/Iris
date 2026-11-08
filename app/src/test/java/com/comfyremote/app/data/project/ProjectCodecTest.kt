@@ -30,6 +30,7 @@ class ProjectCodecTest {
             id = "shot-1",
             prompt = " establishing wide",
             cameraNotes = "slow push in",
+            plannedDurationSeconds = 12,
             referencePath = "/files/ref.png",
             referenceManual = true,
             referenceRole = ReferenceRole.START_FRAME,
@@ -102,6 +103,9 @@ class ProjectCodecTest {
         val restored = ProjectCodec.decode(ProjectCodec.encode(listOf(project))).single()
 
         assertNull(restored.targetDurationSeconds)
+        assertNull(ProjectCodec.decode(ProjectCodec.encode(listOf(
+            project.copy(shots = listOf(ProjectShot(prompt = "scene")))
+        ))).single().shots.single().plannedDurationSeconds)
         assertNull(restored.budget)
         assertNull(restored.shots.singleOrNull()?.let { it.cameraNotes })
         assertEquals("Plain", restored.title)
