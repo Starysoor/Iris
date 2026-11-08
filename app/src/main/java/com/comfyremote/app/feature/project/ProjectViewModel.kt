@@ -11,6 +11,7 @@ import com.comfyremote.app.HistoryItem
 import com.comfyremote.app.LabeledText
 import com.comfyremote.app.data.cloud.AutoDlConfig
 import com.comfyremote.app.data.media.FrameStrip
+import com.comfyremote.app.data.media.ContinuityPaging
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.project.AssetProfile
@@ -780,12 +781,10 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     val path = shot.resultPath
                     shot.status == "done" && path != null && File(path).isFile
                 }
-                val pageCount = maxOf(1, (done.size + CONTINUITY_PAGE_SHOTS - 1) / CONTINUITY_PAGE_SHOTS)
-                val page = requestedPage.coerceIn(0, pageCount - 1)
-                val first = page * CONTINUITY_PAGE_SHOTS
-                val visible = done.drop(first).take(CONTINUITY_PAGE_SHOTS)
-                val seamsScope = done.drop((first - 1).coerceAtLeast(0))
-                    .take(CONTINUITY_PAGE_SHOTS + if (first > 0) 1 else 0)
+                val window = ContinuityPaging.window(done.size, requestedPage, CONTINUITY_PAGE_SHOTS)
+                val visible = done.subList(window.start, window.endExclusive)
+                // Include only the immediate previous shot for the page seam.
+                val seamsScope = done.subList(window.seamStart, window.endExclusive)
                 val strips = visible.mapNotNull { (index, shot) ->
                     val duration = mediaDurationMs(shot.resultPath!!) ?: 0L
                     val frames = FrameStrip.extractFrames(shot.resultPath, STRIP_FRAMES)
@@ -808,7 +807,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     )
                 }
                 ContinuityState(strips = strips, seams = seams, loading = false,
-                    pageIndex = page, pageCount = pageCount)
+                    pageIndex = window.page, pageCount = window.pages)
             }
             _continuity.value = result
         }
