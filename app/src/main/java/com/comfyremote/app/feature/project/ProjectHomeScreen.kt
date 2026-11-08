@@ -82,9 +82,12 @@ fun ProjectHomeScreen(
     onOpenTimeline: () -> Unit,
     onOpenDirector: () -> Unit,
     onOpenTask: (String) -> Unit,
+    onOpenStage: (String, String) -> Unit,
+    onOpenCreate: () -> Unit,
 ) {
     val projects by viewModel.projects.collectAsState()
     val workflows by viewModel.workflows.collectAsState()
+    val stageWorkflows by viewModel.stageWorkflows.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val message by viewModel.message.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
@@ -177,6 +180,23 @@ fun ProjectHomeScreen(
                     TextAction(stringResource(R.string.proj_open_timeline), onClick = onOpenTimeline)
                     TextAction(stringResource(R.string.proj_open_director), onClick = onOpenDirector)
                 }
+            }
+            item("workflow-recipe") {
+                StudioRecipeCard(
+                    project = project,
+                    models = stageWorkflows,
+                    onChooseRecipe = { viewModel.setWorkflowRecipe(project.id, it) },
+                    onChooseModel = { kind, path -> viewModel.setStageWorkflow(project.id, kind, path) },
+                    onRunStage = { kind ->
+                        viewModel.openStage(project.id, kind)?.let { (path, name) ->
+                            onOpenStage(path, name)
+                        }
+                    },
+                    onOpenAssets = onOpenLibrary,
+                    onOpenShots = onOpenWorkspace,
+                    onOpenTimeline = onOpenTimeline,
+                    onOpenCreate = onOpenCreate,
+                )
             }
             item("assets-heading") {
                 SectionHeader(stringResource(R.string.board_assets)) {
