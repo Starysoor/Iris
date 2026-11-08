@@ -28,6 +28,18 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun missingOrWrongTypeProjectListNeverClobbersAnIndex() {
+        for (json in listOf("""{"version":2}""", """{"version":2,"projects":"wrong-type"}""")) {
+            val file = File(temp.root, "projects.json").apply { writeText(json) }
+            val store = ProjectStore(file)
+            assertTrue(store.loadError.value != null)
+            assertTrue(store.projects.value.isEmpty())
+            assertNull(store.create("unsafe", "wf"))
+            assertEquals(json, file.readText())
+        }
+    }
+
+    @Test
     fun validMissingIndexAndRecoveredIndexHaveNoLoadError() {
         val file = File(temp.root, "projects.json")
         val store = ProjectStore(file)
