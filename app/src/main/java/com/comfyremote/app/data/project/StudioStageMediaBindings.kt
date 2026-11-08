@@ -22,6 +22,13 @@ object StudioStageMediaBindings {
             else -> return false
         }
         if (asset.kind != kind || asset.path.isBlank()) return false
+        val extension = asset.path.substringAfterLast('.', "").lowercase()
+        val supportedExtensions = when (kind) {
+            AssetKind.IMAGE -> setOf("jpg", "jpeg", "png", "webp", "gif", "heic", "heif", "avif")
+            AssetKind.AUDIO -> setOf("wav", "mp3", "m4a", "ogg", "flac", "aac")
+            else -> return false
+        }
+        if (extension !in supportedExtensions) return false
         return kind != AssetKind.IMAGE ||
             input.role in setOf(ReferenceRole.AUTO, ReferenceRole.GENERIC_REFERENCE) ||
             asset.role == input.role ||
