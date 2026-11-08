@@ -84,6 +84,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val option = _stageWorkflows.value.firstOrNull {
             it.kind == kind && it.path == workflowPath
         } ?: return
+        val current = stageInspectionVersion.incrementAndGet()
+        stageInspectionJob?.cancel()
         val provider = container.cloudProviders.forPath(option.path)
         if (provider == null || !provider.configured() ||
             !container.cloudProviders.isEnabled(provider.id)) {
@@ -95,8 +97,6 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             )
             return
         }
-        val current = stageInspectionVersion.incrementAndGet()
-        stageInspectionJob?.cancel()
         _stageInspection.value = StageInspection(
             projectId = projectId,
             workflowPath = workflowPath,
