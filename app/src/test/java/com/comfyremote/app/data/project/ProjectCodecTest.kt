@@ -62,6 +62,12 @@ class ProjectCodecTest {
             workflowPath = "autodl:minimax_h3_lightx2v_v5",
             providerId = "autodl",
             defaultValues = mapOf("resolution" to "768p竖"),
+            workflowRecipeId = StudioWorkflowRecipes.KEYFRAMES_AND_AUDIO,
+            stageWorkflowPaths = mapOf(
+                "image" to "autodl:image",
+                "video" to "autodl:video",
+                "audio" to "autodl:audio",
+            ),
             chainFrames = false,
             budget = 12.5,
             shots = listOf(shot),
