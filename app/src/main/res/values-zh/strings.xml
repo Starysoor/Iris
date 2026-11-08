@@ -95,4 +95,10 @@
     <string name="studio_workflow_none">没有匹配的视频工作流</string>
     <string name="studio_workflow_notice">仅显示已配置的视频生成模型。图片、音频可先在创作页生成，再关联至项目。</string>
     <string name="studio_ai_more_context">AI 将参考镜头状态、角色/场景、目标时长和 Take；请逐项核对建议后再应用。</string>
+    <!-- AI director editable plan (#101) -->
+    <string name="studio_ai_edit_plan">编辑镜头</string>
+    <string name="studio_ai_camera">运镜 / 动作 / 衔接要求</string>
+    <string name="studio_ai_seconds">计划叙事时长（秒）</string>
+    <string name="studio_ai_seconds_hint">计划叙事时长不代表模型单次生成时长；必要时需要多段续接或切镜。</string>
+    <string name="studio_ai_duration_summary">计划叙事时长：%1$d 秒 / 目标 %2$d 秒。请核对模型单段时长及镜头连续性。</string>
 </resources>
