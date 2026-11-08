@@ -89,7 +89,7 @@
     <string name="studio_history_pick_action">Use result in project</string>
     <string name="studio_history_pick_shot">Choose a shot</string>
     <string name="studio_history_take_added">Added as a new take. Select it in the shot workspace when ready.</string>
-    <string name="studio_history_timeline_added">Added to the project's timeline.</string>
+    <string name="studio_history_timeline_added">Added to the project timeline.</string>
     <string name="studio_history_import_failed">Cannot link this media: %1$s</string>
     <string name="studio_workflow_search">Search video models</string>
     <string name="studio_workflow_provider_all">All providers</string>
