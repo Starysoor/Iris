@@ -69,4 +69,30 @@
     <string name="price_range_per_run">%1$s–%2$s / 次</string>
     <string name="price_platform">按平台计费</string>
     <string name="board_err_missing_task">关联任务已从任务中心消失，请先确认厂商任务状态再手动重试，以免重复计费。</string>
+    <!-- Studio guided cross-screen experience (#101) -->
+    <string name="studio_progress_title">下一步怎么做</string>
+    <string name="studio_progress_detail">已完成 %1$d/%2$d 镜头 · %3$d 项素材 · %4$d 个时间线片段</string>
+    <string name="studio_assets_optional">纯文本生成可以暂不导入素材；为保持角色/场景一致性建议建立参考图库。</string>
+    <string name="studio_next_add_shots">先建立镜头计划</string>
+    <string name="studio_next_generate">继续生成待完成镜头</string>
+    <string name="studio_next_arrange">编排已完成镜头</string>
+    <string name="studio_next_review">检查时间线并导出</string>
+    <string name="studio_linked_title">当前项目：%1$s · 第 %2$d 镜头</string>
+    <string name="studio_linked_detail">本次生成关联到该镜头，任务及结果可在项目中追踪。</string>
+    <string name="studio_back_to_project">返回项目</string>
+    <string name="studio_tasks_all">全部项目</string>
+    <string name="studio_tasks_independent">独立任务</string>
+    <string name="studio_history_as_take">保存为镜头候选 Take</string>
+    <string name="studio_history_as_timeline">直接加入时间线</string>
+    <string name="studio_history_as_asset">导入项目素材库</string>
+    <string name="studio_history_pick_action">在项目中使用结果</string>
+    <string name="studio_history_pick_shot">选择镜头</string>
+    <string name="studio_history_take_added">已添加为镜头候选 Take，可在镜头工坊选择使用。</string>
+    <string name="studio_history_timeline_added">已加入项目时间线。</string>
+    <string name="studio_history_import_failed">无法关联媒体：%1$s</string>
+    <string name="studio_workflow_search">搜索视频模型</string>
+    <string name="studio_workflow_provider_all">全部服务</string>
+    <string name="studio_workflow_none">没有匹配的视频工作流</string>
+    <string name="studio_workflow_notice">仅显示已配置的视频生成模型。图片、音频可先在创作页生成，再关联至项目。</string>
+    <string name="studio_ai_more_context">AI 将参考镜头状态、角色/场景、目标时长和 Take；请逐项核对建议后再应用。</string>
 </resources>
