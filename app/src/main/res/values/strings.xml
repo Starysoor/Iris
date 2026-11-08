@@ -146,4 +146,12 @@
     <string name="studio_contract_bounds">Allowed range: %1$s to %2$s (provider rule)</string>
     <string name="studio_contract_options">Supported options: %1$s</string>
     <string name="studio_contract_shortfall">Not enough distinct matching project files for these required slots: %1$s. Import more media or upload directly in Create.</string>
+    <!-- Explicit provider field media binding (#101) -->
+    <string name="studio_binding_wrong_type">Select a compatible existing project asset for this verified input field.</string>
+    <string name="studio_binding_reinspect">Check the current model contract again before applying saved media bindings.</string>
+    <string name="studio_binding_stale">A bound project asset or input field is missing, unreadable, or incompatible. Reassign it in Check inputs.</string>
+    <string name="studio_binding_upload_failed">A mapped image or audio input failed to load. Fix the failed field before submitting a paid task.</string>
+    <string name="studio_binding_choose">Choose project asset for this field</string>
+    <string name="studio_binding_clear">Remove binding</string>
+    <string name="studio_binding_no_assets">No project assets match this media field</string>
 </resources>
