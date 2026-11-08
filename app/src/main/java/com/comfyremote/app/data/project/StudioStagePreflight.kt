@@ -58,7 +58,10 @@ object StudioStagePreflight {
         rules: List<CloudInputRule>,
         assets: List<ProjectAsset>,
     ): List<String> {
-        val required = rules.filter { it.required && it.type in setOf("image", "audio") }
+        val required = rules.filter {
+            it.required && it.type in setOf("image", "audio") &&
+                it.effectiveDefault.isNullOrBlank()
+        }
         val uniqueFiles = assets.filter { it.path.isNotBlank() }.distinctBy { it.path }
         val candidates = required.map { field ->
             val kind = if (field.type == "image") AssetKind.IMAGE else AssetKind.AUDIO
