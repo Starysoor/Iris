@@ -275,6 +275,16 @@ private fun StudioContractDetails(report: StudioStagePreflight.Report) {
             color = MaterialTheme.colorScheme.error,
         )
     }
+    if (report.potentialMissingMediaSlots.isNotEmpty()) {
+        Text(
+            stringResource(
+                R.string.studio_contract_shortfall,
+                report.potentialMissingMediaSlots.joinToString(", "),
+            ),
+            color = MaterialTheme.colorScheme.error,
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     report.inputs.forEach { input ->
         Text(
             input.field + " · " + input.type +
