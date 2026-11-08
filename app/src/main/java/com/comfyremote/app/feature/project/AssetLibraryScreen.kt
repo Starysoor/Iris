@@ -60,9 +60,12 @@ import com.comfyremote.app.ui.components.EmptyState
 import com.comfyremote.app.ui.components.IrisCard
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.IrisTextField
+import com.comfyremote.app.ui.components.InfoBanner
+import com.comfyremote.app.ui.components.BannerTone
 import com.comfyremote.app.ui.components.SegmentedControl
 import com.comfyremote.app.ui.components.StatusChip
 import com.comfyremote.app.ui.components.TextAction
+import java.io.File
 
 /**
  * Project asset library: every media kind, tags, and the consistency profiles
@@ -131,7 +134,20 @@ fun AssetLibraryScreen(
         val assets = project.assets
             .filter { selectedKind == null || it.kind == selectedKind }
             .sortedBy { it.order }
+        val usedBytes = remember(project.assets) {
+            project.assets.map { it.path }.distinct().sumOf { path ->
+                val file = File(path)
+                if (file.isFile) file.length().coerceAtLeast(0L) else 0L
+            }
+        }
         Column(Modifier.padding(pad).fillMaxSize()) {
+            Text(
+                text = stringResource(R.string.proj_assets_disk_usage,
+                    (usedBytes + 1024L * 1024 - 1L) / (1024L * 1024)),
+                style = IrisType.metaSmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                modifier = Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.xs),
+            )
             if (importProgress.running) {
                 Row(
                     Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter, vertical = Spacing.sm),
