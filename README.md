@@ -1,108 +1,148 @@
+<div align="center">
+
+![Iris — One lens. Every model.](docs/brand/iris-hero.svg)
+
 # Iris · 灵瞳
 
-[中文](#中文) | [English](#english)
+**让 AI 创作回到一个工作台。** 连接本地 ComfyUI 与多家云端模型，在 Android 上完成从提示词、素材、镜头到结果的创作流程。
 
-[![Release](https://img.shields.io/github/v/release/Starysoor/Iris?display_name=tag)](https://github.com/Starysoor/Iris/releases)
-[![CI](https://github.com/Starysoor/Iris/actions/workflows/test.yml/badge.svg)](https://github.com/Starysoor/Iris/actions/workflows/test.yml)
+**One lens. Every model.** Local ComfyUI and cloud AI creation, thoughtfully brought together on Android.
 
-One lens, every model. Android client for local ComfyUI **and** hosted cloud workflows — pick a model, write a prompt, generate images, video or audio.
+[![Latest release](https://img.shields.io/github/v/release/Starysoor/Iris?logo=github&label=Stable%20release&color=8e9cf4)](https://github.com/Starysoor/Iris/releases/latest)
+[![Tests](https://github.com/Starysoor/Iris/actions/workflows/test.yml/badge.svg)](https://github.com/Starysoor/Iris/actions/workflows/test.yml)
+[![Android](https://img.shields.io/badge/Android-10%2B-82b5a2?logo=android&logoColor=white)](#快速开始--quick-start)
+[![License](https://img.shields.io/github/license/Starysoor/Iris?color=a9a0d5)](LICENSE)
 
-**v2.3.2** · [Download APK](https://github.com/Starysoor/Iris/releases/latest) · [Cloud provider guide](docs/CloudProviders.md) · [AutoDL guide](docs/AutoDL.md) · [Screenshots](docs/verification)
+**[⬇ 获取正式版 APK](https://github.com/Starysoor/Iris/releases/latest)** · **[查看新界面](#真实界面--live-screens)** · **[Studio 开发计划](https://github.com/Starysoor/Iris/issues/57)** · **[使用指南](#文档导航--documentation)**
 
-<a href="docs/verification/redesign/light-create.png"><img src="docs/verification/redesign/light-create.png" width="200"/></a>
-<a href="docs/verification/redesign/light-generate.png"><img src="docs/verification/redesign/light-generate.png" width="200"/></a>
-<a href="docs/verification/redesign/dark-board.png"><img src="docs/verification/redesign/dark-board.png" width="200"/></a>
-<a href="docs/verification/redesign/dark-cloud-settings.png"><img src="docs/verification/redesign/dark-cloud-settings.png" width="200"/></a>
+[简体中文](#中文介绍) · [English](#english-overview)
 
-## English
+</div>
 
-**Iris** turns your phone into a remote for generation models running on your PC or in the cloud:
+> [!IMPORTANT]
+> **版本说明 / Release status:** GitHub Releases 的稳定版为 **v2.3.2**。`main` 包含下一代 **Iris Studio** 的开发中功能；音轨混音与 v2.4.0 候选仍在审核及设备验收阶段（[#91](https://github.com/Starysoor/Iris/pull/91)、[#92](https://github.com/Starysoor/Iris/pull/92)、[#80](https://github.com/Starysoor/Iris/issues/80)）。下方截图取自真实 Android 模拟器运行的开发版，使用清楚标记的离线演示数据，不代表正式版已包含全部展示内容。
 
-- **Local + multi-provider cloud workflows** — browse local ComfyUI and AutoDL.Art workflows alongside OpenAI, Gemini, Replicate, SiliconFlow, AutoDL Models and configurable OpenAI-compatible / JSON-template APIs
-- **Cloud workspace** — provider cards group every model by vendor; model lists are pulled from each provider (never hard-coded), and a provider can be hidden without deleting its settings
-- **Workflow conversion** — converts ComfyUI canvas JSON to API format automatically and discovers prompts, seeds, reference images and advanced parameters
-- **Cloud video + audio** — image-to-video, first/last-frame, multi-image/multi-audio, lip-sync and TTS workflows; results are downloaded immediately because hosted URLs expire
-- **Cost guardrails** — platform price, per-run estimate and confirmation before a paid submit; local spend estimate and cancel warnings
-- **Storyboard** — build multi-shot cloud video projects with reusable project assets. Tail-frame relay is an optional per-project mode; returned frames are added to project assets and Results automatically
-- **Vision-aware AI** — the built-in “AI vision rewrite” actually sends your image to a multimodal model, then rewrites the prompt around what it sees
-- **AI prompt skills** — expand / tag / translate / negative / vision skills via any OpenAI-compatible endpoint (DeepSeek, Zhipu, OpenAI, Qwen, Moonshot, Ollama); custom skills and per-workflow bindings
-- **Live progress** — foreground service, node-level progress, latent preview, cancel, task recovery after process death, local batch queue
-- **History** — full prompts + seeds, image/video/audio thumbnails and playback, one-tap reuse, A/B comparison for images, image → video handoff
-- **Multi-server** — saved servers, LAN discovery, health/queue probing, least-busy switching
-- **Configurable UI** — compact layout, recent-result count, theme, default batch/seed/queue, upload size and more in Settings
-- **Iris design system** — purpose-built light/dark palettes, typography, surfaces, chips, inputs and edge-to-edge navigation
-- **Secret storage** — tokens normally use Android Keystore-backed AES/GCM; when Keystore encryption is unavailable, a legacy plaintext fallback can be used to prevent token loss
+## 真实界面 · Live screens
 
-## 中文
+<p align="center"><sub>真实 Android 14 模拟器截图 / Actual Compose UI · Offline demo project · No paid generation</sub></p>
 
-**Iris（灵瞳）**把手机变成生成模型的遥控器：本地 ComfyUI 与云端工作流，一个入口完成。
+<table>
+<tr>
+<td align="center" width="33%"><a href="docs/verification/showcase-2026/01-projects-light.png"><img src="docs/verification/showcase-2026/01-projects-light.png" alt="真实应用截图：项目列表" width="245"></a><br><b>项目中心 · Projects</b></td>
+<td align="center" width="33%"><a href="docs/verification/showcase-2026/02-overview-light.png"><img src="docs/verification/showcase-2026/02-overview-light.png" alt="真实应用截图：项目概览" width="245"></a><br><b>创作概览 · Overview</b></td>
+<td align="center" width="33%"><a href="docs/verification/showcase-2026/03-shots-light.png"><img src="docs/verification/showcase-2026/03-shots-light.png" alt="真实应用截图：镜头工作台" width="245"></a><br><b>镜头工坊 · Shots</b></td>
+</tr>
+<tr>
+<td align="center"><a href="docs/verification/showcase-2026/04-assets-light.png"><img src="docs/verification/showcase-2026/04-assets-light.png" alt="真实应用截图：素材库" width="245"></a><br><b>素材档案 · Assets</b></td>
+<td align="center"><a href="docs/verification/showcase-2026/05-timeline-dark.png"><img src="docs/verification/showcase-2026/05-timeline-dark.png" alt="真实应用截图：时间线" width="245"></a><br><b>剪辑时间线 · Timeline</b></td>
+<td align="center"><a href="docs/verification/showcase-2026/06-director-dark.png"><img src="docs/verification/showcase-2026/06-director-dark.png" alt="真实应用截图：AI 导演" width="245"></a><br><b>AI 导演 · Director</b></td>
+</tr>
+</table>
 
-### 核心能力
+<details><summary><b>更多截图 / More screenshots</b></summary>
 
-- **本地 + 多厂商云端**：创作页统一管理本地 ComfyUI、AutoDL.Art 托管工作流，以及 OpenAI、Gemini、Replicate、SiliconFlow、AutoDL Models 和可自定义的兼容接口、JSON 模板 API
-- **云服务工作台**：按厂商分组展示模型，模型列表由厂商接口拉取而不是内置预设；可随时关闭某个厂商而不删除配置
-- **云端视频 + 音频**：图生视频、首尾帧、多图参考、多图多音频、对口型与 TTS；云端结果是临时链接，成功后立即下载到手机
-- **费用护栏**：提交前显示平台计价、本次预估并二次确认；本地记录预估消耗；取消云端任务会提示平台侧可能继续计费
-- **分镜**：把多个云端视频镜头串成项目，支持复用项目素材；尾帧接力是可选的整项目玩法，返回的尾帧会自动进入项目素材和结果库
-- **真正看图改写的 AI**：内置「AI 看图改写」会把参考图作为图片输入发给多模态模型，再结合你的修改要求重写提示词；不是纯文本猜测
-- **AI 提示词技能**：扩写、标签、翻译、负面、看图改写等，兼容任意 OpenAI 风格接口（DeepSeek、智谱、OpenAI、Qwen、Moonshot、Ollama），支持自定义技能与按工作流绑定
-- **实时反馈**：前台服务保活、节点进度、latent 预览、取消、进程重启恢复、本地批量队列
-- **结果库**：完整提示词 + 实际 seed、图片/视频/音频缩略图与播放、一键复用、图片 A/B 对比、图片一键转云端视频
-- **多服务器**：保存地址、局域网发现、健康/队列探测、最空闲切换
-- **可定制界面**：紧凑布局、最近结果数量、主题、默认批量/种子/队列、上传尺寸等，全部集中在设置页
-- **Iris 设计系统**：自建浅色/深色配色、字体、卡片、Chip、输入框和 edge-to-edge 导航
-- **密钥保护**：正常设备使用 Android Keystore 的 AES/GCM 加密保存令牌；Keystore 不可用时为避免丢失令牌，可能回退到本地明文保存，建议在安全设备上使用
+<a href="docs/verification/showcase-2026/07-settings-dark.png"><img src="docs/verification/showcase-2026/07-settings-dark.png" alt="实际 Android 设置界面" width="245"></a>
 
-### 连接方式
+截图采集脚本：[`tools/qa_capture_showcase.sh`](tools/qa_capture_showcase.sh)。旧版真实截图仍保留在 [历史验证资料](docs/verification/) 中。
 
-Iris 现支持 Tailscale 设备发现：普通局域网和 VPN 网段搜索无需额外凭据；如需发现从未保存的其他 Tailnet 节点，可以在连接页或服务器管理页配置只读 `devices:core:read` Tailscale API 访问令牌。详见 [Tailscale 设备发现指南](docs/TAILSCALE_DISCOVERY.md)。
+</details>
 
-| 场景 | 地址 |
-|---|---|
-| 模拟器 | `http://10.0.2.2:8188` |
-| 手机与电脑同一 Wi-Fi | `http://<电脑局域网IP>:8188` |
-| 任意网络 | 电脑与手机都装 [Tailscale](https://tailscale.com)，填电脑的 Tailscale IP |
-| 云端（无需本地显卡） | 设置 → 云端服务，选择对应厂商并配置其独立 API Key / Endpoint；AutoDL 托管工作流使用 ComfyUI 分组 Token |
+---
 
-ComfyUI 需以 `--listen 0.0.0.0` 启动。连接页可直接选择“仅使用云端模型”。
+## 中文介绍
 
-### 云端计费与恢复提醒
+### 一个入口，贯穿创作流程
 
-云端 Provider 根据其各自的计费规则收费。Iris 会在发起付费生成前显示实际厂商、可获得的价格/预估并请求确认；本地“预估消耗”不是厂商账单。取消本地跟踪不一定会取消远端任务，某些厂商仍可能继续执行及计费。云端结果链接可能过期，请及时保存。
+| | 工作环节 | 主要能力 |
+|:--|:--|:--|
+| **01 · 连接** | 本地和云端 | ComfyUI、多服务器、Tailscale、AutoDL 和云端 Provider |
+| **02 · 创作** | 多模态任务 | 生图、视频、音频、首尾帧、多图参考和批量队列 |
+| **03 · 组织** | 项目与版本 | Studio、角色/场景档案、Shot / Take 多版本（开发中） |
+| **04 · 输出** | 结果和成片 | 结果库、复用、分享、时间线和 MP4（开发中） |
 
-v2.3.0 增强了云端任务状态和结果的重启恢复；极端情况下，如果远端已接受任务而本机持久化同时失败，仍可能需要手工找回远端任务 ID。详见 [云服务配置与恢复说明](docs/CloudProviders.md)。
+### 为什么选择 Iris？
 
-## Build
+- **模型不再分散。** 同一客户端可配置本地 ComfyUI、AutoDL.Art、OpenAI、Gemini、Replicate、SiliconFlow、AutoDL Models 及兼容 API；具体模型与能力取决于服务商接口和验证范围。
+- **参考图有明确语义。** 根据真实模型输入契约映射多图、首帧/尾帧、提示词、种子、参数与高级字段；支持 ComfyUI 工作流 API 格式转换。
+- **任务与结果持续可用。** 前台任务、节点进度、本地队列、重启恢复、媒体缩略图和播放、A/B 对比、再次使用、云端结果及时下载。
+- **付费调用有确认。** 展示可获取的价格和预估成本，提供付费提交确认和本地预算闸门；估算值不能取代厂商账单。
+- **Studio 朝完整短片工作台演进。** 项目、素材、镜头多版本、时间线、衔接检查和 AI 导演；AI 只提建议，不会自行提交付费作业。
 
-```bash
-# Requires JDK 17+ and an Android SDK (compileSdk 34) + Gradle 8.7 wrapper
-./gradlew :app:assembleDebug          # debug APK
-./gradlew :app:testDebugUnitTest      # converter + generation + cloud/storyboard tests
-./gradlew :app:lintDebug              # Android lint
+### Iris Studio · 下一阶段
+
+```mermaid
+flowchart LR
+  A[剧本与项目] --> B[角色 / 场景素材]
+  B --> C[Shot 镜头]
+  C --> D[Take 多版本]
+  D --> E[时间线]
+  E --> F[MP4 导出]
+  G[AI 导演建议] -.-> C
+  H[预算和任务状态] -.-> D
 ```
 
-On Windows PowerShell use `.\gradlew.bat`. If your Windows user profile path contains non-ASCII characters, set an ASCII `GRADLE_USER_HOME` so Gradle test workers can launch.
+**开发说明：** `main` 已包含 Studio 核心开发代码，但完整音轨混音、预览与导出一致性、硬件编解码及完整短片 E2E 仍以 [发布任务 #80](https://github.com/Starysoor/Iris/issues/80) 为正式验收依据。
 
-Release builds are produced by GitHub Actions on `v*` tags (signing key provided via repo secrets).
-`tools/ai_mock.mjs` runs a local mock OpenAI server for keyless testing of the AI expansion flow.
-`tools/fetch_fixtures.mjs` refreshes the real ComfyUI workflow fixtures.
+## 快速开始 · Quick start
 
-> The technical package name (`com.comfyremote.app`) is intentionally retained after the Iris rebrand so existing installs can still receive in-app updates. Change `applicationId` only when you are ready for a clean install.
+1. 从 [Releases](https://github.com/Starysoor/Iris/releases/latest) 下载稳定版 APK。为兼容原有升级路径，应用包名仍为 `com.comfyremote.app`。
+2. **云端模式：** 在「设置 → 云服务」配置各 Provider 凭据；**本地模式：** 启动监听 `0.0.0.0:8188` 的 ComfyUI，使用局域网地址或已授权的 Tailscale 地址连接。
+3. 选择模型/工作流并编辑提示词与参考图，确认参数和费用提示，提交后在任务和结果页追踪输出。
 
-### Documentation
+| 连接方式 | 地址或入口 |
+|:--|:--|
+| Android 模拟器 → 宿主电脑 | `http://10.0.2.2:8188` |
+| 手机与电脑同 Wi-Fi | `http://<PC_LAN_IP>:8188` |
+| 远程 Tailscale | 设备 IP / MagicDNS（需要 ACL 与服务可达） |
+| 多厂商云端 | 「设置 → 云服务」，独立配置 Provider |
 
-- [Cloud services: providers, configuration, recovery and known limits](docs/CloudProviders.md)
-- [AutoDL cloud workflows, parameters and billing](docs/AutoDL.md)
-- [Iris Studio project model and migration notes](docs/PROJECT_MODEL.md)
-- [Iris Studio QA / emulator and phone acceptance checklist](docs/STUDIO_QA.md)
-- [v2.3.2 release notes](docs/releases/v2.3.2.md)
-- [v2.3.0 release notes](docs/releases/v2.3.0.md)
-- [Verification screenshots](docs/verification)
-- [v2.2 redesign screenshots](docs/verification/redesign)
-- [Changelog](CHANGELOG.md)
+> [!CAUTION]
+> **费用与数据安全：** 取消本地跟踪并不保证取消远端付费作业。远端结果链接可能过期，请及时保存。远端已接受但本地保存失败时，应先确认厂商状态再重试。少数 Android 设备在 Keystore 不可用时可能使用明文凭据回退，不建议在不可信设备保存敏感 API Key。
 
-The repository was renamed from `Starysoor/ComfyRemote` to `Starysoor/Iris`; GitHub redirects old URLs, and the in-app updater points at the new repository.
+## 文档导航 · Documentation
 
-## License
+| 内容 | 入口 |
+|:--|:--|
+| 云端平台、恢复与限制 | [Cloud Providers](docs/CloudProviders.md) |
+| AutoDL 托管工作流 | [AutoDL guide](docs/AutoDL.md) |
+| Tailscale 与本地服务器 | [Tailscale discovery](docs/TAILSCALE_DISCOVERY.md) |
+| Studio 结构、迁移和回滚 | [Project model](docs/PROJECT_MODEL.md) |
+| Studio 测试与真机验收 | [Studio QA](docs/STUDIO_QA.md) |
+| 历史更新与版本下载 | [CHANGELOG](CHANGELOG.md) · [Releases](https://github.com/Starysoor/Iris/releases) |
+| 报错或需求建议 | [Issues](https://github.com/Starysoor/Iris/issues) |
 
-[MIT](LICENSE)
+<details><summary><b>开发构建 / Build from source</b></summary>
+
+需要 JDK 17、Android SDK（compileSdk 34）及 Gradle 8.7：
+
+```bash
+./gradlew :app:assembleDebug
+./gradlew :app:testDebugUnitTest
+./gradlew :app:lintDebug
+```
+
+Windows PowerShell 改用 `.\gradlew.bat`。发布由版本标签触发 GitHub Actions 的签名构建流程；Debug / Release 候选不等于正式签名 APK。
+
+</details>
+
+---
+
+## English overview
+
+**Iris** is a native Android companion for local ComfyUI workflows and hosted AI providers. Choose a provider, bring reference images, inspect model inputs, confirm paid submissions, then keep your tasks and media results organized.
+
+**Core capabilities:** multi-server ComfyUI; configurable cloud and OpenAI-compatible providers; image/video/audio workflows; first/last-frame and multi-image inputs; AI prompt skills; task progress and recovery; result playback and reuse. The project-driven **Iris Studio** is under active development.
+
+**Release clarity:** stable APK **v2.3.2**. Studio enhancements on `main` and in review are not yet a published v2.4.0. Screens above are genuine Android emulator captures populated with labeled offline demo fixtures. Follow [the release readiness issue](https://github.com/Starysoor/Iris/issues/80) for physical-device acceptance.
+
+Learn more: [Cloud services](docs/CloudProviders.md) · [AutoDL](docs/AutoDL.md) · [Studio model](docs/PROJECT_MODEL.md) · [Latest release](https://github.com/Starysoor/Iris/releases/latest).
+
+---
+
+<div align="center">
+
+**Iris · 灵瞳** · Designed for creators who work across models.
+
+[Report a bug](https://github.com/Starysoor/Iris/issues/new) · [Release notes](CHANGELOG.md) · [MIT License](LICENSE)
+
+</div>
