@@ -240,7 +240,8 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     _linkedShot.value = transfer?.storyboardProjectId?.let { projectId ->
                         container.projectStore.project(projectId)?.let { project ->
                             val index = project.shots.indexOfFirst { it.id == transfer.storyboardShotId }
-                            if (index >= 0) LinkedStudioShot(projectId, project.title, index + 1) else null
+                            // A workflow-recipe stage belongs to a project even without a Shot.
+                            LinkedStudioShot(projectId, project.title, if (index >= 0) index + 1 else 0)
                         }
                     }
                     val storyboard = pendingStoryboardProjectId != null && pendingStoryboardShotId != null
@@ -437,10 +438,9 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         persistDraftNow(draft)
         val count = effectiveBatchCount(storyboard, _state.value.batchCount)
         val requests = (0 until count).map { index -> buildRequest(draft, cv, index) }
-        // Project budget gate (#57 P3): a shot belonging to a project with a
-        // budget is blocked BEFORE the paid-confirmation dialog when this
-        // submission would push the project's estimated spend past it.
-        if (storyboard) {
+        // Project budget applies to *all* project-linked stages, including standalone
+        // image/audio prep with no Shot. Never silently bypass the budget via recipes.
+        if (projectId != null) {
             val budget = container.projectStore.project(projectId)?.budget
             val stats = taskCostStats(tasks.value, projectId)
             when (val decision = BudgetGate.check(stats.costSum, requests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }, budget)) {
