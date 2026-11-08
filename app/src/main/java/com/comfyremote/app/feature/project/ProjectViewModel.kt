@@ -60,6 +60,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
     private val _workflows = MutableStateFlow<List<ProjectWorkflowOption>>(emptyList())
     val workflows: StateFlow<List<ProjectWorkflowOption>> = _workflows.asStateFlow()
+    private val _stageWorkflows = MutableStateFlow<List<ProjectWorkflowOption>>(emptyList())
+    val stageWorkflows: StateFlow<List<ProjectWorkflowOption>> = _stageWorkflows.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message: StateFlow<String?> = _message.asStateFlow()
     data class AssetImportProgress(val running: Boolean = false, val copiedBytes: Long = 0, val totalBytes: Long? = null)
@@ -120,7 +122,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     runCatching { provider.catalog(force = false) }
                         .onSuccess { list ->
                             ready += provider.id
-                            options += list.filter { it.kind == "video" }.map { summary ->
+                            options += list.filter { it.kind in setOf("image", "video", "audio") }.map { summary ->
                                 ProjectWorkflowOption(
                                     path = provider.pathPrefix + summary.id,
                                     workflowId = summary.id,
@@ -143,12 +145,59 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             if (!isActive || version != catalogRefreshVersion.get()) return@launch
             catalogReadyProviders.clear()
             catalogReadyProviders += ready
-            _workflows.value = options.distinctBy { it.path }.sortedWith(
+            val sorted = options.distinctBy { it.path }.sortedWith(
                 compareBy<ProjectWorkflowOption> { it.providerLabel.lowercase() }
                     .thenBy { it.name.lowercase() }
             )
+            _stageWorkflows.value = sorted
+            _workflows.value = sorted.filter { it.kind == "video" }
             if (options.isEmpty() && errors.isNotEmpty()) _message.value = errors.first()
         }
+    }
+
+    fun setWorkflowRecipe(projectId: String, recipeId: String) {
+        if (!container.projectStore.setWorkflowRecipe(projectId, recipeId)) {
+            _message.value = AppStrings.get(R.string.board_err_persist)
+        }
+    }
+
+    fun setStageWorkflow(projectId: String, kind: String, workflowPath: String) {
+        val option = _stageWorkflows.value.firstOrNull { it.path == workflowPath && it.kind == kind }
+        if (option == null) {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
+            return
+        }
+        if (!container.projectStore.setStageWorkflow(projectId, kind, workflowPath)) {
+            _message.value = AppStrings.get(R.string.board_err_persist)
+        }
+    }
+
+    /** Open an independently submitted image/video/audio stage with a persistent project id. */
+    fun openStage(projectId: String, kind: String): Pair<String, String>? {
+        val project = container.projectStore.project(projectId) ?: return null
+        if (!com.comfyremote.app.data.project.StudioWorkflowRecipes.isModelKind(kind)) return null
+        val path = project.stageWorkflowPaths[kind]?.takeIf(String::isNotBlank)
+            ?: if (kind == "video") project.workflowPath else ""
+        val option = _stageWorkflows.value.firstOrNull { it.kind == kind && it.path == path }
+        if (option == null) {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
+            return null
+        }
+        val provider = container.cloudProviders.forPath(path)
+        if (provider == null || !provider.configured()) {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
+            return null
+        }
+        val name = "${project.title} · ${option.name}"
+        container.draftTransferRepository.put(DraftTransfer(
+            workflowPath = path,
+            workflowName = name,
+            values = if (kind == "video") project.defaultValues else emptyMap(),
+            randomSeed = true,
+            storyboardProjectId = projectId,
+            storyboardShotId = null,
+        ))
+        return path to name
     }
 
     fun createProject(
