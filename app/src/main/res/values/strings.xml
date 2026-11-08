@@ -130,4 +130,19 @@
     <string name="studio_link_project_level">Link to this project only</string>
     <string name="studio_link_shot">Use shot %1$d</string>
     <string name="studio_shot_planned_seconds">Planned: %1$d s</string>
+    <!-- #101 actual provider schema preflight -->
+    <string name="studio_contract_inspect">Check inputs</string>
+    <string name="studio_contract_title">Provider input check</string>
+    <string name="studio_contract_loading">Fetching actual provider input fields…</string>
+    <string name="studio_contract_failed">Cannot check model contract: %1$s</string>
+    <string name="studio_contract_safe_hint">This is a read-only check. Project assets are only candidates and are not automatically mapped or uploaded. Verify required fields and final price in Create before submitting.</string>
+    <string name="studio_contract_summary">Image slots: %1$d (%2$d required). Audio slots: %3$d (%4$d required).</string>
+    <string name="studio_contract_unknown_price">Cost: provider did not supply pricing metadata</string>
+    <string name="studio_contract_configurable">Fields are editable in Create; this does not confirm that media is already mapped.</string>
+    <string name="studio_contract_unknown">Provider returned no usable input rules. Capability cannot be verified.</string>
+    <string name="studio_contract_blocked">Unsupported required fields or mismatched output type: %1$s</string>
+    <string name="studio_contract_required">Required</string>
+    <string name="studio_contract_inventory">Project asset candidates with matching type and role: %1$d (not yet mapped)</string>
+    <string name="studio_contract_bounds">Allowed range: %1$s to %2$s (provider rule)</string>
+    <string name="studio_contract_options">Supported options: %1$s</string>
 </resources>
