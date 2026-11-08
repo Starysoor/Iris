@@ -101,4 +101,24 @@
     <string name="studio_ai_seconds">计划叙事时长（秒）</string>
     <string name="studio_ai_seconds_hint">计划叙事时长不代表模型单次生成时长；必要时需要多段续接或切镜。</string>
     <string name="studio_ai_duration_summary">计划叙事时长：%1$d 秒 / 目标 %2$d 秒。请核对模型单段时长及镜头连续性。</string>
+    <!-- Guided, saved multi-stage workflows (#101) -->
+    <string name="studio_linked_project_title">当前项目：%1$s</string>
+    <string name="studio_recipe_title">组合工作流</string>
+    <string name="studio_recipe_choose">选择流程模板</string>
+    <string name="studio_recipe_text">文字分镜 → 视频 → 剪辑</string>
+    <string name="studio_recipe_refs">参考图库 → 首尾帧接力 → 剪辑</string>
+    <string name="studio_recipe_keyframes">关键帧图 → 视频 → 配音音效 → 剪辑</string>
+    <string name="studio_recipe_manual_hint">选择各阶段模型并逐步执行。素材输入和模型限制需在创作页核对；完成后从结果页关联回项目。选择模板本身不会执行收费任务。</string>
+    <string name="studio_recipe_missing_model">请为此阶段选择已配置模型，也可到创作页使用本地 ComfyUI。</string>
+    <string name="studio_recipe_select_model">选择阶段模型</string>
+    <string name="studio_recipe_run_stage">进入生成</string>
+    <string name="studio_recipe_open_step">打开工作区</string>
+    <string name="studio_recipe_browse_create">浏览所有工作流（含本地）</string>
+    <string name="studio_recipe_no_models">未配置匹配的模型。可到创作页使用本地工作流。</string>
+    <string name="studio_recipe_step_assets">准备角色和场景参考</string>
+    <string name="studio_recipe_step_image">生成关键帧图片</string>
+    <string name="studio_recipe_step_shots">规划和分配镜头</string>
+    <string name="studio_recipe_step_video">生成视频候选并接力首尾帧</string>
+    <string name="studio_recipe_step_audio">制作音乐、对白和音效</string>
+    <string name="studio_recipe_step_timeline">复核、混音和导出</string>
 </resources>
