@@ -75,6 +75,44 @@ class DirectorPromptsTest {
     }
 
     @Test
+    fun directorReceivesProfilesTimelineTakeStatusAndRealConfiguredChoices() {
+        val shot = com.comfyremote.app.data.project.ProjectShot(
+            prompt = "赤月下的舞会",
+            cameraNotes = "从手部特写推到全景",
+            plannedDurationSeconds = 10,
+            status = "done",
+            takes = listOf(com.comfyremote.app.data.project.ShotTake(
+                status = "done", workflowPath = "autodl:video",
+            )),
+        )
+        val project = com.comfyremote.app.data.project.VideoProject(
+            title = "绯红舞会",
+            workflowId = "",
+            targetDurationSeconds = 120,
+            budget = 30.0,
+            profiles = listOf(com.comfyremote.app.data.project.AssetProfile(
+                name = "紫裙舞者",
+                summary = "脸部冷静，不笑，保持服装一致",
+            )),
+            shots = listOf(shot),
+            timeline = com.comfyremote.app.data.project.Timeline(
+                videoTrack = listOf(com.comfyremote.app.data.project.TimelineClip(
+                    sourcePath = "/tmp/studio.mp4", sourceOutMs = 10000L,
+                )),
+            ),
+        )
+        val context = DirectorPrompts.user(project, listOf("AutoDL · H3 video"))
+        assertTrue("紫裙舞者" in context)
+        assertTrue("不笑" in context)
+        assertTrue("赤月下的舞会" in context)
+        assertTrue("完成 Take 1" in context)
+        assertTrue("视频片段 1 个 / 10 秒" in context)
+        assertTrue("30.0" in context)
+        assertTrue("AutoDL · H3 video" in context)
+        assertTrue("剩余目标时长 110 秒" in context)
+    }
+
+    @Test
     fun userPromptCarriesProjectContext() {
         val project = com.comfyremote.app.data.project.VideoProject(
             id = "p1",
