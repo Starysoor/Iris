@@ -129,6 +129,25 @@ class ProjectStore internal constructor(private val file: File) {
         it.copy(budget = budget?.takeIf { value -> value.isFinite() && value > 0.0 }, updatedAt = System.currentTimeMillis())
     }
 
+    /** Local recipe/plan changes never submit paid work or modify an existing Take. */
+    fun setWorkflowRecipe(projectId: String, recipeId: String): Boolean {
+        if (!StudioWorkflowRecipes.supports(recipeId)) return false
+        return update(projectId) { project ->
+            project.copy(workflowRecipeId = recipeId, updatedAt = System.currentTimeMillis())
+        }
+    }
+
+    fun setStageWorkflow(projectId: String, kind: String, workflowPath: String): Boolean {
+        if (!StudioWorkflowRecipes.isModelKind(kind)) return false
+        return update(projectId) { project ->
+            project.copy(
+                stageWorkflowPaths = if (workflowPath.isBlank()) project.stageWorkflowPaths - kind
+                    else project.stageWorkflowPaths + (kind to workflowPath),
+                updatedAt = System.currentTimeMillis(),
+            )
+        }
+    }
+
     /** Toggles the optional tail-frame relay. Turning it off clears automatic refs only. */
     fun setChainFrames(projectId: String, enabled: Boolean): Boolean = update(projectId) { project ->
         project.copy(
