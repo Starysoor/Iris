@@ -81,6 +81,44 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun historyLinkedTakeIsCandidateAndKeepsTimelineAndSelectedVersionSafe() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "A scene")!!
+        assertTrue(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/final.mp4", prompt = "Take")))
+        val after = store.project(project.id)!!.shots.single()
+        assertEquals("draft", after.status)
+        assertNull(after.resultPath)
+        assertNull(after.selectedTakeId)
+        assertEquals("done", after.takes.single().status)
+        assertTrue("/history/final.mp4" in store.referencedMediaPaths())
+        assertFalse(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/final.mp4")))
+        assertEquals(1, store.project(project.id)!!.shots.single().takes.size)
+
+        assertTrue(store.addClip(project.id, TrackKind.VIDEO,
+            TimelineClip(sourcePath = "/history/final.mp4", sourceOutMs = 5000)))
+        assertTrue(store.deleteTake(project.id, shot.id, after.takes.single().id))
+        assertTrue("/history/final.mp4" in store.referencedMediaPaths())
+        assertEquals(1, store.project(project.id)!!.timeline!!.videoTrack.size)
+    }
+
+    @Test
+    fun existingTakeCannotOverwriteARunningPaidShot() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val shot = store.addShot(project.id, "A scene")!!
+        assertTrue(store.attachTask(project.id, shot.id, "paid-task"))
+        assertFalse(store.attachExistingTake(project.id, shot.id,
+            ShotTake(status = "done", resultPath = "/history/other.mp4")))
+        val unchanged = store.project(project.id)!!.shots.single()
+        assertEquals("paid-task", unchanged.taskId)
+        assertEquals(1, unchanged.takes.size)
+        assertEquals("running", unchanged.takes.single().status)
+    }
+
+    @Test
     fun nextShotWaitsForAnEarlierRunningShot() {
         val store = store()
         val project = store.create("Studio", "wf")!!
