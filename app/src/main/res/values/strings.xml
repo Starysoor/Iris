@@ -1,6 +1,7 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">Iris</string>
+    <string name="history_storage_unreadable">Results index is unreadable. Your media files have not been deleted. Iris has blocked unsafe changes; preserve app data and restore the history/index.json backup instead of clearing storage.</string>
 
     <!-- Shared actions -->
     <string name="action_back">Back</string>

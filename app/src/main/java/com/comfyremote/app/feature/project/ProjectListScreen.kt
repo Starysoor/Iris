@@ -2,6 +2,7 @@ package com.comfyremote.app.feature.project
 
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
@@ -37,6 +38,8 @@ import com.comfyremote.app.ui.IrisType
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.ChipTone
 import com.comfyremote.app.ui.components.EmptyState
+import com.comfyremote.app.ui.components.InfoBanner
+import com.comfyremote.app.ui.components.BannerTone
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.IrisTonalButton
 import com.comfyremote.app.ui.components.LargeTopBar
@@ -54,6 +57,7 @@ fun ProjectListScreen(
     onOpenProject: (String) -> Unit,
 ) {
     val projects by viewModel.projects.collectAsState()
+    val loadError by viewModel.projectLoadError.collectAsState()
     val workflows by viewModel.workflows.collectAsState()
     val message by viewModel.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
@@ -70,7 +74,7 @@ fun ProjectListScreen(
                 title = stringResource(R.string.proj_title),
                 subtitle = stringResource(R.string.proj_subtitle, projects.size),
                 actions = {
-                    IconButton(onClick = { creating = true }) {
+                    IconButton(onClick = { creating = true }, enabled = loadError == null) {
                         Icon(Icons.Outlined.Add, stringResource(R.string.proj_new))
                     }
                 },
@@ -79,7 +83,14 @@ fun ProjectListScreen(
     ) { pad ->
         if (projects.isEmpty()) {
             Box(Modifier.padding(pad).fillMaxSize(), contentAlignment = Alignment.Center) {
-                EmptyState(
+                if (loadError != null) {
+                    Column(Modifier.padding(Spacing.gutter), verticalArrangement = Arrangement.spacedBy(Spacing.md)) {
+                        InfoBanner(text = stringResource(R.string.proj_storage_unreadable), tone = BannerTone.Error)
+                        Text(stringResource(R.string.proj_storage_recovery),
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant)
+                    }
+                } else EmptyState(
                     title = stringResource(R.string.proj_empty_title),
                     detail = stringResource(R.string.proj_empty_detail),
                     icon = Icons.Outlined.Movie,
@@ -112,7 +123,7 @@ fun ProjectListScreen(
         }
     }
 
-    if (creating) {
+    if (creating && loadError == null) {
         CreateProjectDialog(
             workflows = workflows,
             onDismiss = { creating = false },

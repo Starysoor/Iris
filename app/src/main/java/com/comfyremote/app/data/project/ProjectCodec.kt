@@ -35,7 +35,8 @@ object ProjectCodec {
      * guard: rows that decode() had to drop must never be overwritten silently.
      */
     fun rawProjectCount(raw: String): Int? = runCatching {
-        JSONObject(raw).optJSONArray("projects")?.length() ?: 0
+        // A missing or wrong-type projects field is damage, not an empty index.
+        JSONObject(raw).optJSONArray("projects")?.length()
     }.getOrNull()
 
     private fun projectToJson(project: VideoProject): JSONObject = JSONObject()

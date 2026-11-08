@@ -23,6 +23,9 @@ class ProjectStore internal constructor(private val file: File) {
     constructor(context: Context) : this(File(context.filesDir, "projects.json"))
 
     private val lock = Any()
+    /** Missing index is a normal empty Studio; unreadable index must not masquerade as one. */
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError.asStateFlow()
     private val _projects = MutableStateFlow(load())
     val projects: StateFlow<List<VideoProject>> = _projects.asStateFlow()
 
@@ -35,12 +38,29 @@ class ProjectStore internal constructor(private val file: File) {
     }
 
     fun load(): List<VideoProject> = synchronized(lock) {
-        runCatching {
-            if (!file.isFile) emptyList() else ProjectCodec.decode(file.readText())
-        }.getOrDefault(emptyList())
-            // Keep the persisted chain consistent with the project's relay setting.
-            .map { project -> project.copy(shots = rebaseAutoReferences(project.shots, project.chainFrames)) }
-            .sortedByDescending { it.updatedAt }
+        try {
+            val projects = if (!file.exists()) {
+                emptyList()
+            } else {
+                // decode() tolerates partial damage for inspection; never display a
+                // partly decoded index as if some of its projects had been deleted.
+                if (!file.isFile) throw IOException("Project index is not a regular file")
+                val raw = file.readText()
+                val count = ProjectCodec.rawProjectCount(raw)
+                    ?: throw IOException("Project index has invalid JSON or version")
+                val decoded = ProjectCodec.decode(raw)
+                if (decoded.size != count) throw IOException("Project index contains unreadable rows")
+                decoded
+            }
+            _loadError.value = null
+            projects
+                .map { project -> project.copy(shots = rebaseAutoReferences(project.shots, project.chainFrames)) }
+                .sortedByDescending { it.updatedAt }
+        } catch (error: Exception) {
+            // Keep all bytes intact, and make the recovery blocker visible to UI.
+            _loadError.value = error.message ?: error.javaClass.simpleName
+            emptyList()
+        }
     }
 
     fun create(

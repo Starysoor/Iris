@@ -5,6 +5,8 @@
     <string name="proj_subtitle">AI video workbench · %1$d</string>
     <string name="proj_new">New project</string>
     <string name="proj_empty_title">No projects yet</string>
+    <string name="proj_storage_unreadable">Project index cannot be read safely. Your projects have not been deleted.</string>
+    <string name="proj_storage_recovery">Iris has blocked writes over the damaged projects.json. Preserve app data and restore a backup; do not clear storage or reinstall.</string>
     <string name="proj_empty_detail">Create a project, import characters and scenes, build shots and turn them into a finished video</string>
 
     <!-- Project home -->
@@ -26,6 +28,7 @@
 
     <!-- Asset library -->
     <string name="proj_assets_manage">Manage</string>
+    <string name="proj_assets_disk_usage">Linked project assets: about %1$d MiB (unique files)</string>
     <string name="proj_assets_title">Project assets</string>
     <string name="proj_assets_empty_hint">Import images, videos or audio. Tag them and bundle them into character/scene profiles for reuse across shots.</string>
     <string name="proj_asset_kind_all">All</string>
@@ -97,7 +100,8 @@
     <string name="proj_timeline_mute_hint">Silences the own audio of this clip in the export</string>
     <string name="proj_timeline_muted">MUTED</string>
     <string name="proj_timeline_preview">Preview</string>
-    <string name="proj_timeline_preview_note">Preview plays the video track only, with trims applied. Independent audio overlay, speed, gain and mute are rendered in the exported MP4.</string>
+    <string name="proj_timeline_preview_note">Preview first renders a temporary MP4 using the same video, audio, trim, speed, gain and mute engine as export. Longer projects can take time to prepare. Temporary media is discarded when closed.</string>
+    <string name="proj_timeline_preview_preparing">Preparing accurate preview: %1$d%%</string>
     <string name="proj_timeline_unreadable">Cannot read that media file</string>
     <string name="proj_export_start">Export MP4</string>
     <string name="proj_export_title">Export movie</string>
@@ -122,6 +126,9 @@
     <string name="proj_director_warning">WARN</string>
     <string name="proj_director_info">INFO</string>
     <string name="proj_director_continuity">Continuity strips</string>
+    <string name="proj_director_page_previous">Previous</string>
+    <string name="proj_director_page_next">Next</string>
+    <string name="proj_director_page_count">Page %1$d of %2$d · bounded thumbnail cache</string>
     <string name="proj_director_continuity_loading">Extracting frames…</string>
     <string name="proj_director_continuity_empty">Generate shots first; each finished shot shows a per-second frame strip here.</string>
     <string name="proj_director_seam_hint">Last frame of the previous shot vs first frame of this shot. Big jumps suggest a re-generate or a cut.</string>

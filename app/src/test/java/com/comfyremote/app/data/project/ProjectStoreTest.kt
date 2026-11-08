@@ -18,6 +18,51 @@ class ProjectStoreTest {
     private fun store() = ProjectStore(File(temp.root, "projects.json"))
 
     @Test
+    fun corruptIndexIsShownAsRecoveryBlockerRatherThanAnEmptyProject() {
+        val file = File(temp.root, "projects.json").apply { writeText("{corrupt-json") }
+        val store = ProjectStore(file)
+        assertTrue(store.projects.value.isEmpty())
+        assertTrue(store.loadError.value != null)
+        assertNull(store.create("New", "workflow"))
+        assertEquals("{corrupt-json", file.readText())
+    }
+
+    @Test
+    fun missingOrWrongTypeProjectListNeverClobbersAnIndex() {
+        for (json in listOf("""{"version":2}""", """{"version":2,"projects":"wrong-type"}""")) {
+            val file = File(temp.root, "projects.json").apply { writeText(json) }
+            val store = ProjectStore(file)
+            assertTrue(store.loadError.value != null)
+            assertTrue(store.projects.value.isEmpty())
+            assertNull(store.create("unsafe", "wf"))
+            assertEquals(json, file.readText())
+        }
+    }
+
+    @Test
+    fun validMissingIndexAndRecoveredIndexHaveNoLoadError() {
+        val file = File(temp.root, "projects.json")
+        val store = ProjectStore(file)
+        assertNull(store.loadError.value)
+        val project = store.create("Recovered", "wf")!!
+        val reloaded = ProjectStore(file)
+        assertNull(reloaded.loadError.value)
+        assertEquals(project.id, reloaded.projects.value.single().id)
+    }
+
+    @Test
+    fun partlyUnreadableProjectIndexMustNotBePresentedAsValid() {
+        val file = File(temp.root, "projects.json").apply {
+            writeText("""{"version":2,"projects":[{"title":"missing id"}]}""")
+        }
+        val store = ProjectStore(file)
+        assertTrue(store.loadError.value != null)
+        assertTrue(store.projects.value.isEmpty())
+        assertNull(store.create("unsafe", "wf"))
+        assertTrue(file.readText().contains("missing id"))
+    }
+
+    @Test
     fun createDerivesAutoDlPathsAndKeepsProviderIdentity() {
         val store = store()
 

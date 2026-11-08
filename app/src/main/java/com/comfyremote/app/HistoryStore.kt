@@ -7,6 +7,9 @@ import org.json.JSONObject
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
+import kotlinx.coroutines.flow.asStateFlow
 import java.nio.file.Files
 import java.nio.file.StandardCopyOption
 
@@ -51,11 +54,35 @@ class HistoryStore(
     ) : this(File(context.getExternalFilesDir(null), "history").apply { mkdirs() }, protectedMedia = protectedMedia)
 
     private val indexFile = File(dir, "index.json")
+    private val _loadError = MutableStateFlow<String?>(null)
+    val loadError: StateFlow<String?> = _loadError.asStateFlow()
+
+    init {
+        // A killed process cannot run the export coroutine's finally block.
+        // Reclaim only old, unindexed Studio export tmp files at process startup.
+        cleanupAbandonedStudioExports()
+    }
+
+    /**
+     * Strictly scoped startup scavenger: never delete active/fresh exports, user
+     * media, imported files, other workers' tmp files, or completed MP4s.
+     */
+    internal fun cleanupAbandonedStudioExports(now: Long = System.currentTimeMillis()): Int {
+        val threshold = now - STUDIO_TMP_GRACE_MS
+        val pattern = Regex("""project-export-\d{10,20}_\d+\.mp4\.tmp""")
+        return dir.listFiles()?.count { candidate ->
+            candidate.isFile && !Files.isSymbolicLink(candidate.toPath()) &&
+                pattern.matches(candidate.name) && candidate.lastModified() < threshold &&
+                candidate.delete()
+        } ?: 0
+    }
 
     fun load(): List<HistoryItem> = runCatching {
         val arr = JSONArray(indexFile.takeIf { it.isFile }?.readText() ?: "[]")
         (0 until arr.length()).mapNotNull { i ->
-            val o = arr.optJSONObject(i) ?: return@mapNotNull null
+            val o = arr.optJSONObject(i)
+                ?: throw IOException("History index contains an unreadable entry at $i")
+            if (o.optString("id").isBlank()) throw IOException("History entry $i has no id")
             HistoryItem(
                 id = o.optString("id"),
                 wfPath = o.optString("wfPath"),
@@ -73,7 +100,13 @@ class HistoryStore(
                 tags = strList(o.optJSONArray("tags")),
             )
         }
-    }.getOrDefault(emptyList()).sortedWith(
+    }.onSuccess {
+        _loadError.value = null
+    }.getOrElse { error ->
+        // Do not pretend a corrupt index is an empty Results library.
+        _loadError.value = error.message ?: error.javaClass.simpleName
+        emptyList()
+    }.sortedWith(
         compareByDescending<HistoryItem> { it.favorite }.thenByDescending { it.time }
     )
 
@@ -145,7 +178,13 @@ class HistoryStore(
         // A corrupted index must not be silently overwritten with an empty library.
         if (indexFile.isFile) {
             try {
-                JSONArray(indexFile.readText())
+                val existing = JSONArray(indexFile.readText())
+                for (i in 0 until existing.length()) {
+                    val row = existing.optJSONObject(i)
+                    if (row == null || row.optString("id").isBlank()) {
+                        throw IOException("History index contains an unreadable entry at $i")
+                    }
+                }
             } catch (error: Exception) {
                 throw IOException("History index is unreadable; refusing to overwrite it", error)
             }
@@ -254,5 +293,6 @@ class HistoryStore(
     companion object {
         private const val MAX_ITEMS = 200
         private const val PRUNE_GRACE_MS = 60 * 60_000L
+        private const val STUDIO_TMP_GRACE_MS = 10 * 60_000L
     }
 }

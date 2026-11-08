@@ -5,6 +5,8 @@
     <string name="proj_subtitle">AI 视频工作台 · %1$d</string>
     <string name="proj_new">新建项目</string>
     <string name="proj_empty_title">还没有项目</string>
+    <string name="proj_storage_unreadable">项目索引无法安全读取；项目并未被删除。</string>
+    <string name="proj_storage_recovery">应用已阻止覆盖损坏的 projects.json。请保留数据并从备份恢复；不要清除应用存储或重新安装。</string>
     <string name="proj_empty_detail">创建一个项目，导入角色与场景，搭建镜头并制作成片</string>
 
     <!-- Project home -->
@@ -26,6 +28,7 @@
 
     <!-- Asset library -->
     <string name="proj_assets_manage">管理</string>
+    <string name="proj_assets_disk_usage">项目已关联素材约 %1$d MiB · 按独立文件去重统计</string>
     <string name="proj_assets_title">项目素材</string>
     <string name="proj_assets_empty_hint">导入图片、视频或音频；打标签并归入角色/场景一致性档案，即可跨镜头复用。</string>
     <string name="proj_asset_kind_all">全部</string>
@@ -97,7 +100,8 @@
     <string name="proj_timeline_mute_hint">导出时将此片段自带音频静音</string>
     <string name="proj_timeline_muted">已静音</string>
     <string name="proj_timeline_preview">预览</string>
-    <string name="proj_timeline_preview_note">预览仅播放视频轨并应用裁剪；独立音轨、速度、音量和静音效果在导出的 MP4 中生效。</string>
+    <string name="proj_timeline_preview_note">为保证与正式导出一致，预览先在设备上合成临时 MP4，包含视频轨、独立音频轨、裁剪、倍速、音量及静音。长视频准备时间可能较长，关闭预览后临时文件将清理。</string>
+    <string name="proj_timeline_preview_preparing">正在合成准确预览：%1$d%%</string>
     <string name="proj_timeline_unreadable">无法读取该媒体文件</string>
     <string name="proj_export_start">导出 MP4</string>
     <string name="proj_export_title">导出成片</string>
@@ -122,6 +126,9 @@
     <string name="proj_director_warning">警告</string>
     <string name="proj_director_info">提示</string>
     <string name="proj_director_continuity">衔接检查</string>
+    <string name="proj_director_page_previous">上一页</string>
+    <string name="proj_director_page_next">下一页</string>
+    <string name="proj_director_page_count">第 %1$d / %2$d 页 · 分页释放旧缩略图</string>
     <string name="proj_director_continuity_loading">正在抽帧…</string>
     <string name="proj_director_continuity_empty">先生成镜头；每个已完成的镜头会在这里显示逐秒帧条。</string>
     <string name="proj_director_seam_hint">左为上一镜尾帧，右为本镜首帧。差异过大建议重新生成或切镜。</string>

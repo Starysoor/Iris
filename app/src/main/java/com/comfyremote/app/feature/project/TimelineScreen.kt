@@ -20,6 +20,7 @@ import androidx.compose.material.icons.outlined.MoreVert
 import androidx.compose.material.icons.outlined.Movie
 import androidx.compose.material.icons.outlined.PlayArrow
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
@@ -45,12 +46,15 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.viewinterop.AndroidView
+import android.media.MediaMetadataRetriever
 import androidx.media3.common.MediaItem
 import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.Timeline
+import com.comfyremote.app.data.project.ExportPlanBuilder
+import com.comfyremote.app.data.project.VideoExporter
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
 import com.comfyremote.app.data.project.VideoProject
@@ -74,6 +78,10 @@ import com.comfyremote.app.ui.components.SegmentedControl
 import com.comfyremote.app.ui.components.StatusChip
 import com.comfyremote.app.ui.components.TextAction
 import java.io.File
+import java.util.UUID
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import java.util.Locale
 
 private val SPEED_STEPS = listOf(0.5f, 1f, 1.5f, 2f)
@@ -565,43 +573,98 @@ private fun EditClipDialog(
 }
 
 /**
- * Sequential preview of the video track: trims apply through clipping; speed,
- * volume and mute are previewed at 1x (the export is authoritative).
+ * Export-faithful preview: create a disposable MP4 using the SAME plan and
+ * Transformer as the final export. Video speed, source volume/mute and the
+ * parallel audio overlay cannot silently diverge from preview playback.
+ * The temporary movie is never added to History or the user's media library.
  */
 @androidx.annotation.OptIn(UnstableApi::class)
 @Composable
 private fun PreviewDialog(timeline: Timeline, onDismiss: () -> Unit) {
     val context = LocalContext.current
-    val player = remember(timeline.videoTrack) {
-        ExoPlayer.Builder(context).build().apply {
-            timeline.videoTrack.forEach { clip ->
-                addMediaItem(
-                    MediaItem.Builder()
-                        .setUri(android.net.Uri.fromFile(File(clip.sourcePath)))
-                        .setClippingConfiguration(
-                            MediaItem.ClippingConfiguration.Builder()
-                                .setStartPositionMs(clip.sourceInMs)
-                                .setEndPositionMs(clip.sourceOutMs)
-                                .build(),
-                        )
-                        .build(),
-                )
+    val exporter = remember(timeline) { VideoExporter(context.applicationContext) }
+    val previewFile = remember(timeline) {
+        File(context.cacheDir, "iris-preview-${UUID.randomUUID()}.mp4")
+    }
+    var progress by remember(timeline) { mutableStateOf(0f) }
+    var ready by remember(timeline) { mutableStateOf(false) }
+    var error by remember(timeline) { mutableStateOf<String?>(null) }
+
+    LaunchedEffect(timeline, exporter) {
+        try {
+            val plan = withContext(Dispatchers.IO) {
+                val sources = (timeline.videoTrack + timeline.audioTrack).map { it.sourcePath }.toSet()
+                val missing = sources.filterNot { File(it).isFile }
+                check(missing.isEmpty()) { "Missing media: ${missing.joinToString(", ") { it.substringAfterLast('/') }}" }
+                val durations = sources.associateWith { path ->
+                    val metadata = MediaMetadataRetriever()
+                    try {
+                        metadata.setDataSource(path)
+                        metadata.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+                    } finally {
+                        metadata.release()
+                    }
+                }
+                check(durations.values.all { it != null && it > 0L }) { "Unreadable video or audio source" }
+                ExportPlanBuilder.build(timeline, sources, durations.mapValues { it.value!! })
             }
+            check(plan.items.isNotEmpty()) { "No video clips to preview" }
+            check(plan.skippedMissing.isEmpty() && plan.invalidTrims.isEmpty()) {
+                "Missing clips or invalid trim: ${(plan.skippedMissing + plan.invalidTrims).joinToString(", ")}"
+            }
+            val result = exporter.export(plan, previewFile) { progress = it }
+            ready = result is VideoExporter.Result.Success
+            if (!ready) error = "Preview was cancelled"
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (failure: Exception) {
+            error = failure.message ?: failure.javaClass.simpleName
+        } finally {
+            if (!ready) previewFile.delete()
+        }
+    }
+
+    // Close or changing the timeline must cancel a render before reclaiming
+    // only its own temp media. No app-owned source file is ever modified.
+    DisposableEffect(exporter, previewFile) {
+        onDispose {
+            exporter.cancel()
+            previewFile.delete()
+        }
+    }
+
+    val previewPlayer = remember(previewFile, ready) {
+        if (!ready) null else ExoPlayer.Builder(context).build().apply {
+            setMediaItem(MediaItem.fromUri(android.net.Uri.fromFile(previewFile)))
             prepare()
         }
     }
-    DisposableEffect(Unit) {
-        onDispose { player.release() }
+    DisposableEffect(previewPlayer) {
+        onDispose { previewPlayer?.release() }
     }
+
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.proj_timeline_preview)) },
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                AndroidView(
-                    factory = { ctx -> PlayerView(ctx).apply { this.player = player } },
-                    modifier = Modifier.fillMaxWidth().height(220.dp),
-                )
+                when {
+                    previewPlayer != null -> AndroidView(
+                        factory = { ctx -> PlayerView(ctx).apply { player = previewPlayer } },
+                        update = { view -> view.player = previewPlayer },
+                        modifier = Modifier.fillMaxWidth().height(220.dp),
+                    )
+                    error != null -> InfoBanner(error.orEmpty(), tone = BannerTone.Error)
+                    else -> {
+                        Row(
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                            verticalAlignment = Alignment.CenterVertically,
+                        ) {
+                            CircularProgressIndicator()
+                            Text(stringResource(R.string.proj_timeline_preview_preparing, (progress * 100).toInt()))
+                        }
+                    }
+                }
                 Text(
                     stringResource(R.string.proj_timeline_preview_note),
                     style = IrisType.metaSmall,

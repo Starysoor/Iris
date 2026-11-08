@@ -15,6 +15,8 @@ class HistoryRepository(private val store: HistoryStore) {
     private val lock = Any()
     private val _items = MutableStateFlow(store.load())
     val items: StateFlow<List<HistoryItem>> = _items.asStateFlow()
+    /** Persistent diagnostic state, independent of the visible result list. */
+    val loadError: StateFlow<String?> = store.loadError
 
     fun load(): List<HistoryItem> = _items.value
 
