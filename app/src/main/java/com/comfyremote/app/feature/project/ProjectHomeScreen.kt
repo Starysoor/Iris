@@ -188,6 +188,9 @@ fun ProjectHomeScreen(
                     models = stageWorkflows,
                     inspection = stageInspection,
                     onInspectStage = { kind, path -> viewModel.inspectStage(project.id, kind, path) },
+                    onBindMedia = { kind, path, field, assetId ->
+                        viewModel.setStageMediaBinding(project.id, kind, path, field, assetId)
+                    },
                     onChooseRecipe = { viewModel.setWorkflowRecipe(project.id, it) },
                     onChooseModel = { kind, path -> viewModel.setStageWorkflow(project.id, kind, path) },
                     onRunStage = { kind ->
