@@ -5,6 +5,8 @@
     <string name="proj_subtitle">AI 视频工作台 · %1$d</string>
     <string name="proj_new">新建项目</string>
     <string name="proj_empty_title">还没有项目</string>
+    <string name="proj_storage_unreadable">项目索引无法安全读取；项目并未被删除。</string>
+    <string name="proj_storage_recovery">应用已阻止覆盖损坏的 projects.json。请保留数据并从备份恢复；不要清除应用存储或重新安装。</string>
     <string name="proj_empty_detail">创建一个项目，导入角色与场景，搭建镜头并制作成片</string>
 
     <!-- Project home -->
