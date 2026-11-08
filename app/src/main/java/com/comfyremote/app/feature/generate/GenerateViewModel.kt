@@ -144,7 +144,15 @@ internal fun resolveNegativePromptSource(
     return (draft.values[positive.key] ?: positive.value).takeIf(String::isNotBlank)
 }
 
+data class LinkedStudioShot(
+    val projectId: String,
+    val projectTitle: String,
+    val shotNumber: Int,
+)
+
 class GenerateViewModel(private val container: AppContainer) : ViewModel() {
+    private val _linkedShot = MutableStateFlow<LinkedStudioShot?>(null)
+    val linkedShot: StateFlow<LinkedStudioShot?> = _linkedShot.asStateFlow()
     private val appSettings = container.appSettingsStore.settings.value
     private val _state = MutableStateFlow(
         GenerateUiState(
@@ -219,6 +227,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         loadedPath = path
         pendingStoryboardProjectId = null
         pendingStoryboardShotId = null
+        _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
         _state.update { it.copy(loading = true, error = null, draft = null, insight = null) }
         viewModelScope.launch {
@@ -228,6 +237,12 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                     val transfer = container.draftTransferRepository.consume(path)
                     pendingStoryboardProjectId = transfer?.storyboardProjectId
                     pendingStoryboardShotId = transfer?.storyboardShotId
+                    _linkedShot.value = transfer?.storyboardProjectId?.let { projectId ->
+                        container.projectStore.project(projectId)?.let { project ->
+                            val index = project.shots.indexOfFirst { it.id == transfer.storyboardShotId }
+                            if (index >= 0) LinkedStudioShot(projectId, project.title, index + 1) else null
+                        }
+                    }
                     val storyboard = pendingStoryboardProjectId != null && pendingStoryboardShotId != null
                     val remembered = if (transfer == null &&
                         container.appSettingsStore.settings.value.autoRestoreDrafts
