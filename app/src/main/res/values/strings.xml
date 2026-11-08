@@ -102,4 +102,24 @@
     <string name="studio_ai_seconds">Intended scene length (seconds)</string>
     <string name="studio_ai_seconds_hint">Narrative duration can require multiple generated clips; the model may not support this in one pass.</string>
     <string name="studio_ai_duration_summary">Planned narrative duration: %1$d s / target %2$d s. Confirm model clip limits and continuity.</string>
+    <!-- Guided, saved multi-stage workflows (#101) -->
+    <string name="studio_linked_project_title">Current project: %1$s</string>
+    <string name="studio_recipe_title">Workflow combination</string>
+    <string name="studio_recipe_choose">Choose a recipe</string>
+    <string name="studio_recipe_text">Text → video → edit</string>
+    <string name="studio_recipe_refs">References → frame relay → edit</string>
+    <string name="studio_recipe_keyframes">Keyframe art → video → audio → edit</string>
+    <string name="studio_recipe_manual_hint">Choose a stage model and run each stage deliberately. Media inputs and provider limits must be checked in Create; after completion, link results from Results to this project. Choosing a recipe does not submit paid jobs.</string>
+    <string name="studio_recipe_missing_model">Select a configured stage model, or use Create for local ComfyUI.</string>
+    <string name="studio_recipe_select_model">Choose model</string>
+    <string name="studio_recipe_run_stage">Open generation</string>
+    <string name="studio_recipe_open_step">Open workspace</string>
+    <string name="studio_recipe_browse_create">Browse all workflows (including local)</string>
+    <string name="studio_recipe_no_models">No verified model of this kind is configured. Use Create for local workflows.</string>
+    <string name="studio_recipe_step_assets">Prepare character and scene references</string>
+    <string name="studio_recipe_step_image">Generate keyframe artwork</string>
+    <string name="studio_recipe_step_shots">Plan and assign shots</string>
+    <string name="studio_recipe_step_video">Generate video takes and relay frames</string>
+    <string name="studio_recipe_step_audio">Create music / voice / sound effects</string>
+    <string name="studio_recipe_step_timeline">Review, mix and export</string>
 </resources>
