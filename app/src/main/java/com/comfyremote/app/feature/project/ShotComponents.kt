@@ -191,6 +191,13 @@ internal fun ShotTimelineItem(
                         maxLines = 2,
                         overflow = TextOverflow.Ellipsis,
                     )
+                    shot.plannedDurationSeconds?.let { seconds ->
+                        Text(
+                            stringResource(R.string.studio_shot_planned_seconds, seconds),
+                            style = IrisType.metaSmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
                     shot.cameraNotes?.let {
                         Row(
                             verticalAlignment = Alignment.CenterVertically,
