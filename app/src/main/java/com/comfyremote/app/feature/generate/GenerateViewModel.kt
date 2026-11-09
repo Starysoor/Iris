@@ -197,9 +197,6 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.incomingMedia.pending.collect { pending ->
                 if (pending.isNotEmpty() && _state.value.draft?.fields?.any { it.kind == FieldKind.IMAGE } == true) {
-                    transfer?.boundMediaFieldPaths?.takeIf { it.isNotEmpty() }?.let {
-                        applyBoundMediaFieldPaths(it)
-                    }
                     consumeIncomingMedia()
                 }
             }
@@ -308,7 +305,13 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                             useLocalResultAsReference(reference, initial = storyboard)
                         }
                     }
-                    consumeIncomingMedia()
+                    val boundMedia = transfer?.boundMediaFieldPaths.orEmpty()
+                    if (boundMedia.isNotEmpty()) {
+                        // Do not let a pending OS share-intent overwrite explicit Studio fields.
+                        applyBoundMediaFieldPaths(boundMedia)
+                    } else {
+                        consumeIncomingMedia()
+                    }
                 }
                 .onFailure { e ->
                     _state.update { it.copy(loading = false, error = e.message ?: "error") }
