@@ -38,6 +38,23 @@ class DraftTransferRepositoryTest {
     }
 
     @Test
+    fun handoffPreservesExactModelFieldPathsOnlyForTheTargetWorkflow() {
+        val repo = DraftTransferRepository()
+        val transfer = transfer("autodl:video").copy(
+            referenceFieldPaths = mapOf(
+                "last_frame" to "/project/end.png",
+                "first_frame" to "/project/start.png",
+                "audio" to "/project/voice.wav",
+            ),
+        )
+        repo.put(transfer)
+        assertNull(repo.consume("autodl:different"))
+        assertEquals(transfer.referenceFieldPaths,
+            repo.consume("autodl:video")!!.referenceFieldPaths)
+        assertNull(repo.peek())
+    }
+
+    @Test
     fun clearDropsThePendingTransfer() {
         val repo = DraftTransferRepository()
         repo.put(transfer("autodl:seedance", reuseAcrossWorkflows = true))

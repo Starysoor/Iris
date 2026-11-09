@@ -162,6 +162,25 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun stageFieldBindingPersistsAndIsPrunedAfterAssetDeletion() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val asset = ProjectAsset(
+            id = "frame-a",
+            path = "/assets/frame.png",
+            kind = com.comfyremote.app.data.reference.AssetKind.IMAGE,
+        )
+        assertTrue(store.addAsset(project.id, asset))
+        assertFalse(store.setStageMediaBinding(project.id, "", "start", asset.id))
+        assertFalse(store.setStageMediaBinding(project.id, "autodl:video", "start", "missing"))
+        assertTrue(store.setStageMediaBinding(project.id, "autodl:video", "start", asset.id))
+        assertEquals(listOf(StudioStageMediaBinding("autodl:video", "start", asset.id)),
+            ProjectStore(File(temp.root, "projects.json")).projects.value.single().stageMediaBindings)
+        assertTrue(store.removeAsset(project.id, asset.id))
+        assertTrue(store.project(project.id)!!.stageMediaBindings.isEmpty())
+    }
+
+    @Test
     fun recipeAndIndependentStageModelsDoNotOverwriteShotOrGenerate() {
         val store = store()
         val project = store.create("Film", "wf")!!

@@ -145,4 +145,12 @@
     <string name="studio_contract_bounds">允许范围：%1$s 至 %2$s（服务商声明）</string>
     <string name="studio_contract_options">可选值：%1$s</string>
     <string name="studio_contract_shortfall">项目素材库中缺少足够的不同文件来填充以下必填输入位：%1$s。请添加素材，或直接在创作页上传。</string>
+    <!-- Explicit provider field media binding (#101) -->
+    <string name="studio_binding_wrong_type">请选择与已验证输入字段类型及用途相符的现有项目素材。</string>
+    <string name="studio_binding_reinspect">请先重新检查当前模型输入契约，再应用已保存的素材绑定。</string>
+    <string name="studio_binding_stale">绑定的项目素材或输入字段已经缺失、不可读取或不兼容，请在“检查输入”中重新选择。</string>
+    <string name="studio_binding_upload_failed">已绑定的图像或音频输入加载失败，请修复对应字段后再提交付费任务。</string>
+    <string name="studio_binding_choose">为此输入位选择项目素材</string>
+    <string name="studio_binding_clear">取消绑定</string>
+    <string name="studio_binding_no_assets">项目内没有符合该输入位的素材</string>
 </resources>

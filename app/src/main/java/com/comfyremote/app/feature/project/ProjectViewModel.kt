@@ -19,6 +19,7 @@ import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
 import com.comfyremote.app.data.project.StudioStagePreflight
+import com.comfyremote.app.data.project.StudioStageMediaBindings
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
 import com.comfyremote.app.data.project.VideoExporter
@@ -237,6 +238,35 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Only bind an existing project asset to an actual, just-inspected image/audio slot. */
+    fun setStageMediaBinding(
+        projectId: String,
+        kind: String,
+        workflowPath: String,
+        fieldName: String,
+        assetId: String?,
+    ) {
+        val project = container.projectStore.project(projectId) ?: return
+        val chosenPath = project.stageWorkflowPaths[kind]
+            ?.takeIf(String::isNotBlank) ?: if (kind == "video") project.workflowPath else ""
+        if (chosenPath != workflowPath) return
+        if (assetId != null) {
+            val verified = _stageInspection.value.takeIf {
+                it.projectId == projectId && it.workflowPath == workflowPath && it.kind == kind &&
+                    it.report?.support == StudioStagePreflight.Support.CONFIGURABLE
+            }?.report
+            val input = verified?.inputs?.firstOrNull { it.field == fieldName }
+            val asset = project.assets.firstOrNull { it.id == assetId }
+            if (input == null || asset == null || !StudioStageMediaBindings.accepts(input, asset)) {
+                _message.value = AppStrings.get(R.string.studio_binding_wrong_type)
+                return
+            }
+        }
+        if (!container.projectStore.setStageMediaBinding(projectId, workflowPath, fieldName, assetId)) {
+            _message.value = AppStrings.get(R.string.board_err_persist)
+        }
+    }
+
     /** Open an independently submitted image/video/audio stage with a persistent project id. */
     fun openStage(projectId: String, kind: String): Pair<String, String>? {
         val project = container.projectStore.project(projectId) ?: return null
@@ -253,6 +283,27 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return null
         }
+        val bindings = project.stageMediaBindings.filter { it.workflowPath == path }
+        val fieldPaths = if (bindings.isNotEmpty()) {
+            val report = _stageInspection.value.takeIf {
+                it.projectId == projectId && it.kind == kind && it.workflowPath == path &&
+                    it.report?.support == StudioStagePreflight.Support.CONFIGURABLE
+            }?.report
+            if (report == null) {
+                _message.value = AppStrings.get(R.string.studio_binding_reinspect)
+                return null
+            }
+            StudioStageMediaBindings.resolve(
+                path,
+                report,
+                bindings,
+                project.assets,
+                readable = { media -> File(media).let { it.isFile && it.canRead() } },
+            ) ?: run {
+                _message.value = AppStrings.get(R.string.studio_binding_stale)
+                return null
+            }
+        } else emptyMap()
         val name = "${project.title} · ${option.name}"
         container.draftTransferRepository.put(DraftTransfer(
             workflowPath = path,
@@ -264,6 +315,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             randomSeed = true,
             storyboardProjectId = projectId,
             storyboardShotId = null,
+            referenceFieldPaths = fieldPaths,
         ))
         return path to name
     }

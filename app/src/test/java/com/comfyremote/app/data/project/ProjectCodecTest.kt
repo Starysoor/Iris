@@ -68,6 +68,10 @@ class ProjectCodecTest {
                 "video" to "autodl:video",
                 "audio" to "autodl:audio",
             ),
+            stageMediaBindings = listOf(
+                StudioStageMediaBinding("autodl:video", "start_image", "asset-hero"),
+                StudioStageMediaBinding("autodl:audio", "audio", "asset-clip"),
+            ),
             chainFrames = false,
             budget = 12.5,
             shots = listOf(shot),

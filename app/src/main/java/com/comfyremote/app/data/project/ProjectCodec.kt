@@ -52,6 +52,14 @@ object ProjectCodec {
         .put("defaultValues", JSONObject(project.defaultValues))
         .put("workflowRecipeId", project.workflowRecipeId)
         .put("stageWorkflowPaths", JSONObject(project.stageWorkflowPaths))
+        .put("stageMediaBindings", JSONArray().apply {
+            project.stageMediaBindings.forEach { binding ->
+                put(JSONObject()
+                    .put("workflowPath", binding.workflowPath)
+                    .put("fieldName", binding.fieldName)
+                    .put("assetId", binding.assetId))
+            }
+        })
         .put("chainFrames", project.chainFrames)
         .put("budget", project.budget ?: JSONObject.NULL)
         .put("createdAt", project.createdAt)
@@ -95,6 +103,19 @@ object ProjectCodec {
                 .takeIf(StudioWorkflowRecipes::supports) ?: StudioWorkflowRecipes.TEXT_TO_VIDEO,
             stageWorkflowPaths = stringMap(o.optJSONObject("stageWorkflowPaths"))
                 .filterKeys(StudioWorkflowRecipes::isModelKind),
+            stageMediaBindings = buildList {
+                o.optJSONArray("stageMediaBindings")?.let { array ->
+                    for (index in 0 until array.length()) {
+                        val row = array.optJSONObject(index) ?: continue
+                        val path = row.optString("workflowPath")
+                        val field = row.optString("fieldName")
+                        val asset = row.optString("assetId")
+                        if (path.isNotBlank() && field.isNotBlank() && asset.isNotBlank()) {
+                            add(StudioStageMediaBinding(path, field, asset))
+                        }
+                    }
+                }
+            },
             chainFrames = o.optBoolean("chainFrames", true),
             budget = nullableDouble(o, "budget"),
             shots = shots,

@@ -1,6 +1,7 @@
 package com.comfyremote.app.feature.project
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -8,6 +9,8 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -22,6 +25,7 @@ import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.project.StudioStagePreflight
+import com.comfyremote.app.data.project.StudioStageMediaBindings
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.IrisCard
@@ -38,6 +42,7 @@ internal fun StudioRecipeCard(
     models: List<ProjectWorkflowOption>,
     inspection: ProjectViewModel.StageInspection,
     onInspectStage: (String, String) -> Unit,
+    onBindMedia: (String, String, String, String?) -> Unit,
     onChooseRecipe: (String) -> Unit,
     onChooseModel: (String, String) -> Unit,
     onRunStage: (String) -> Unit,
@@ -146,7 +151,14 @@ internal fun StudioRecipeCard(
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         inspection.report != null ->
-                            StudioContractDetails(inspection.report)
+                            StudioContractDetails(
+                                report = inspection.report,
+                                project = project,
+                                workflowPath = selectedPath,
+                                onBindField = { field, assetId ->
+                                    onBindMedia(kind, selectedPath, field, assetId)
+                                },
+                            )
                         else -> Text(stringResource(R.string.studio_contract_loading))
                     }
                 }
@@ -251,7 +263,13 @@ private fun stepLabel(step: StudioWorkflowRecipes.Step): String = stringResource
 
 /** Displays only facts from the provider's detailed schema, never name guesses. */
 @Composable
-private fun StudioContractDetails(report: StudioStagePreflight.Report) {
+private fun StudioContractDetails(
+    report: StudioStagePreflight.Report,
+    project: VideoProject,
+    workflowPath: String,
+    onBindField: (String, String?) -> Unit,
+) {
+    var expandedField by remember(workflowPath) { mutableStateOf<String?>(null) }
     Text(report.modelName, style = MaterialTheme.typography.titleSmall)
     Text(
         stringResource(R.string.studio_contract_summary, report.imageInputs,
@@ -302,6 +320,56 @@ private fun StudioContractDetails(report: StudioStagePreflight.Report) {
             )
             if (input.role != com.comfyremote.app.data.reference.ReferenceRole.AUTO) {
                 Text(input.role.name, style = MaterialTheme.typography.bodySmall)
+            }
+            if (input.type == "image" || input.type == "audio") {
+                val matching = project.assets.filter { StudioStageMediaBindings.accepts(input, it) }
+                val boundId = project.stageMediaBindings.firstOrNull {
+                    it.workflowPath == workflowPath && it.fieldName == input.field
+                }?.assetId
+                val current = project.assets.firstOrNull { it.id == boundId }
+                Box {
+                    TextButton(onClick = { expandedField = input.field }) {
+                        Text(
+                            current?.let { asset ->
+                                asset.label.ifBlank { java.io.File(asset.path).name }
+                            } ?: stringResource(R.string.studio_binding_choose),
+                            maxLines = 2,
+                        )
+                    }
+                    DropdownMenu(
+                        expanded = expandedField == input.field,
+                        onDismissRequest = { expandedField = null },
+                    ) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.studio_binding_clear)) },
+                            onClick = {
+                                expandedField = null
+                                onBindField(input.field, null)
+                            },
+                        )
+                        matching.forEach { asset ->
+                            DropdownMenuItem(
+                                text = {
+                                    Text(
+                                        asset.label.ifBlank { java.io.File(asset.path).name } +
+                                            " · " + asset.role.name,
+                                    )
+                                },
+                                onClick = {
+                                    expandedField = null
+                                    onBindField(input.field, asset.id)
+                                },
+                            )
+                        }
+                        if (matching.isEmpty()) {
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_binding_no_assets)) },
+                                enabled = false,
+                                onClick = {},
+                            )
+                        }
+                    }
+                }
             }
         }
         if (input.min != null || input.max != null) {
