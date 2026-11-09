@@ -113,6 +113,56 @@ class DirectorPromptsTest {
     }
 
     @Test
+    fun versionedJsonPlanRetainsGroundedEvidenceAndRisks() {
+        val response = """
+            ```json
+            {"schemaVersion":1,"shots":[
+              {"prompt":"紫裙舞者在血月下旋转，双手高举","cameraNotes":"俯视缓缓下推","durationSeconds":12,
+               "referenceAssetIds":["asset-dress"],"workflowPath":"autodl:video",
+               "rationale":"参考现有角色档案","risk":"单次视频上限可能是5秒"},
+              {"prompt":"切到仪式大厅的红色血管特写","cameraNotes":"固定镜头","durationSeconds":4}
+            ]}
+            ```
+        """.trimIndent()
+        val shots = DirectorPrompts.parsePlan(response)
+        assertEquals(2, shots.size)
+        assertEquals(listOf("asset-dress"), shots[0].referenceAssetIds)
+        assertEquals(12, shots[0].suggestedSeconds)
+        assertEquals("autodl:video", shots[0].workflowPath)
+        assertTrue(shots[0].risk.contains("5秒"))
+        assertTrue(shots[0].rationale.contains("档案"))
+    }
+
+    @Test
+    fun jsonWrongVersionOrMalformedDoesNotFallbackToUnsafeTextRows() {
+        val bad = """{"schemaVersion":2,"shots":[{"prompt":"not supported","durationSeconds":5}]}"""
+        assertTrue(DirectorPrompts.parsePlan(bad).isEmpty())
+        assertTrue(DirectorPrompts.parsePlan("""{"schemaVersion":1,"shots":""").isEmpty())
+    }
+
+    @Test
+    fun validationRejectsInventedReferencesWithoutChangingExistingAssets() {
+        val project = com.comfyremote.app.data.project.VideoProject(
+            title = "Fantasy", workflowId = "",
+            assets = listOf(
+                com.comfyremote.app.data.reference.ProjectAsset(
+                    id = "character-view", path = "/tmp/character.png"),
+                com.comfyremote.app.data.reference.ProjectAsset(
+                    id = "audio-voice", path = "/tmp/voice.wav",
+                    kind = com.comfyremote.app.data.reference.AssetKind.AUDIO),
+            ),
+        )
+        val valid = DirectorPrompts.SuggestedShot("Moonlit dance scene", "tracking", 8,
+            referenceAssetIds = listOf("character-view"))
+        assertTrue(DirectorPrompts.validationIssues(valid, project).isEmpty())
+        val invalid = valid.copy(referenceAssetIds = listOf("character-view","missing","audio-voice"))
+        val issues = DirectorPrompts.validationIssues(invalid, project)
+        assertEquals(2, issues.size)
+        assertTrue(issues.any { "missing" in it })
+        assertTrue(issues.any { "audio-voice" in it })
+    }
+
+    @Test
     fun userPromptCarriesProjectContext() {
         val project = com.comfyremote.app.data.project.VideoProject(
             id = "p1",

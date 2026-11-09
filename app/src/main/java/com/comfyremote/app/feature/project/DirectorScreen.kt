@@ -8,6 +8,9 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.LazyRow
@@ -38,6 +41,8 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
+import com.comfyremote.app.data.reference.AssetKind
+import com.comfyremote.app.data.reference.ProjectAsset
 import com.comfyremote.app.data.project.DirectorChecks
 import com.comfyremote.app.data.project.DirectorChecks.Severity
 import com.comfyremote.app.ui.IrisType
@@ -333,6 +338,48 @@ fun DirectorScreen(
                                 maxLines = 3,
                                 overflow = TextOverflow.Ellipsis,
                             )
+                            if (suggestion.referenceAssetIds.isNotEmpty()) {
+                                Text(
+                                    stringResource(
+                                        R.string.studio_ai_ref_count,
+                                        suggestion.referenceAssetIds.size,
+                                    ),
+                                    style = IrisType.metaSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
+                            suggestion.workflowPath?.let { proposed ->
+                                Text(
+                                    stringResource(R.string.studio_ai_model_hint, proposed),
+                                    style = IrisType.metaSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 2,
+                                )
+                            }
+                            if (suggestion.rationale.isNotBlank()) {
+                                Text(
+                                    stringResource(R.string.studio_ai_rationale, suggestion.rationale),
+                                    style = IrisType.metaSmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    maxLines = 3,
+                                )
+                            }
+                            if (suggestion.risk.isNotBlank()) {
+                                Text(
+                                    stringResource(R.string.studio_ai_risk, suggestion.risk),
+                                    style = IrisType.metaSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                    maxLines = 3,
+                                )
+                            }
+                            val issues = DirectorPrompts.validationIssues(suggestion, project)
+                            if (issues.isNotEmpty()) {
+                                Text(
+                                    stringResource(R.string.studio_ai_invalid_plan, issues.first()),
+                                    style = IrisType.metaSmall,
+                                    color = MaterialTheme.colorScheme.error,
+                                )
+                            }
                             Row(horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                                 if (suggestion.cameraNotes.isNotBlank()) {
                                     StatusChip(suggestion.cameraNotes, tone = ChipTone.Neutral)
@@ -372,9 +419,10 @@ fun DirectorScreen(
         planState.suggestions.getOrNull(index)?.let { suggestion ->
             EditStudioDirectorPlan(
                 suggestion = suggestion,
+                imageAssets = project?.assets.orEmpty().filter { it.kind == AssetKind.IMAGE },
                 onDismiss = { editingPlanIndex = null },
-                onApply = { prompt, camera, duration ->
-                    viewModel.editPlanSuggestion(index, prompt, camera, duration)
+                onApply = { prompt, camera, duration, refs ->
+                    viewModel.editPlanSuggestion(index, prompt, camera, duration, refs)
                     editingPlanIndex = null
                 },
             )
@@ -412,19 +460,28 @@ private fun seamTone(diff: Double): ChipTone = when {
 @Composable
 private fun EditStudioDirectorPlan(
     suggestion: DirectorPrompts.SuggestedShot,
+    imageAssets: List<ProjectAsset>,
     onDismiss: () -> Unit,
-    onApply: (String, String, Int?) -> Unit,
+    onApply: (String, String, Int?, List<String>) -> Unit,
 ) {
     var prompt by remember(suggestion) { mutableStateOf(suggestion.prompt) }
     var camera by remember(suggestion) { mutableStateOf(suggestion.cameraNotes) }
     var duration by remember(suggestion) { mutableStateOf(suggestion.suggestedSeconds?.toString().orEmpty()) }
+    var selectedAssets by remember(suggestion) {
+        mutableStateOf(suggestion.referenceAssetIds.filter { id ->
+            imageAssets.any { it.id == id }
+        }.toSet())
+    }
     val seconds = duration.trim().takeIf(String::isNotBlank)?.toIntOrNull()
     val validDuration = duration.isBlank() || (seconds != null && seconds in 1..3600)
     AlertDialog(
         onDismissRequest = onDismiss,
         title = { Text(stringResource(R.string.studio_ai_edit_plan)) },
         text = {
-            Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+            Column(
+                Modifier.heightIn(max = 480.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
                 IrisTextField(
                     value = prompt, onValueChange = { prompt = it },
                     label = stringResource(R.string.gen_prompt),
@@ -443,11 +500,36 @@ private fun EditStudioDirectorPlan(
                 Text(stringResource(R.string.studio_ai_seconds_hint),
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(
+                    stringResource(R.string.studio_ai_select_references),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                if (imageAssets.isEmpty()) {
+                    Text(
+                        stringResource(R.string.studio_binding_no_assets),
+                        style = MaterialTheme.typography.bodySmall,
+                    )
+                }
+                imageAssets.take(32).forEach { asset ->
+                    Row(verticalAlignment = Alignment.CenterVertically) {
+                        Checkbox(
+                            checked = asset.id in selectedAssets,
+                            onCheckedChange = { checked ->
+                                selectedAssets = if (checked) selectedAssets + asset.id
+                                    else selectedAssets - asset.id
+                            },
+                        )
+                        Text(
+                            asset.label.ifBlank { asset.path.substringAfterLast('/') },
+                            style = MaterialTheme.typography.bodySmall,
+                        )
+                    }
+                }
             }
         },
         confirmButton = {
             TextButton(
-                onClick = { onApply(prompt, camera, seconds) },
+                onClick = { onApply(prompt, camera, seconds, selectedAssets.toList()) },
                 enabled = prompt.isNotBlank() && validDuration,
             ) { Text(stringResource(R.string.action_save)) }
         },

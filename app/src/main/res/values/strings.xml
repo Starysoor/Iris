@@ -154,4 +154,12 @@
     <string name="studio_binding_choose">Choose project asset for this field</string>
     <string name="studio_binding_clear">Remove binding</string>
     <string name="studio_binding_no_assets">No project assets match this media field</string>
+    <!-- Versioned, grounded AI director plans (#101) -->
+    <string name="studio_ai_stale_plan">Project changed during AI planning. Generate a fresh plan to avoid overwriting newer work.</string>
+    <string name="studio_ai_invalid_plan">Cannot apply this plan: %1$s</string>
+    <string name="studio_ai_ref_count">Reference images proposed: %1$d</string>
+    <string name="studio_ai_model_hint">Suggested model (verify manually): %1$s</string>
+    <string name="studio_ai_rationale">Basis: %1$s</string>
+    <string name="studio_ai_risk">Check before applying: %1$s</string>
+    <string name="studio_ai_select_references">Project reference images for this shot (user-approved)</string>
 </resources>

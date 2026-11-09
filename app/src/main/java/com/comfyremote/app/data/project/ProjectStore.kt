@@ -247,7 +247,17 @@ class ProjectStore internal constructor(private val file: File) {
                 suggested.any { it.prompt.isBlank() ||
                     (it.plannedDurationSeconds != null && it.plannedDurationSeconds !in 1..3600) }
             ) return@synchronized false
-            updateLocked(projectId) { project ->
+            var validReferences = false
+            val persisted = updateLocked(projectId) { project ->
+                val imageIds = project.assets.filter {
+                    it.kind == com.comfyremote.app.data.reference.AssetKind.IMAGE
+                }.mapTo(hashSetOf()) { it.id }
+                if (suggested.any { shot ->
+                    shot.referenceAssetIds.size > 16 ||
+                        shot.referenceAssetIds.distinct().size != shot.referenceAssetIds.size ||
+                        shot.referenceAssetIds.any { it !in imageIds }
+                }) return@updateLocked project
+                validReferences = true
                 project.copy(
                     // Only safe creative fields cross from AI proposals. Keep automatic
                     // previous-shot tail-frame relay identical to normal addShot().
@@ -257,6 +267,7 @@ class ProjectStore internal constructor(private val file: File) {
                                 prompt = shot.prompt.trim(),
                                 cameraNotes = shot.cameraNotes?.trim()?.ifBlank { null },
                                 plannedDurationSeconds = shot.plannedDurationSeconds,
+                                referenceAssetIds = shot.referenceAssetIds,
                             )
                         },
                         project.chainFrames,
@@ -264,6 +275,7 @@ class ProjectStore internal constructor(private val file: File) {
                     updatedAt = System.currentTimeMillis(),
                 )
             }
+            validReferences && persisted
         }
 
     fun insertShotAfter(projectId: String, shotId: String, prompt: String, cameraNotes: String? = null): ProjectShot? =
