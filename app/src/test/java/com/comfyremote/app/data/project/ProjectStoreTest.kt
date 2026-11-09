@@ -119,6 +119,34 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun groundedAiPlanStoresOnlyUserApprovedProjectImageIdsAndRemainsAtomic() {
+        val store = store()
+        val project = store.create("Film", "wf")!!
+        val image = ProjectAsset(id = "allowed", path = "/reference/view.png")
+        assertTrue(store.addAsset(project.id, image))
+        val success = store.addPlannedShots(project.id, listOf(
+            ProjectShot(
+                prompt = "Scene with character reference",
+                referenceAssetIds = listOf(image.id),
+                status = "running",
+                taskId = "forged-task",
+                resultPath = "/forged-result.mp4",
+            ),
+        ))
+        assertTrue(success)
+        val shot = store.project(project.id)!!.shots.single()
+        assertEquals(listOf(image.id), shot.referenceAssetIds)
+        assertEquals("draft", shot.status)
+        assertNull(shot.taskId)
+        assertNull(shot.resultPath)
+
+        assertFalse(store.addPlannedShots(project.id, listOf(
+            ProjectShot(prompt = "Never insert bogus reference", referenceAssetIds = listOf("bogus")),
+        )))
+        assertEquals(1, ProjectStore(File(temp.root, "projects.json")).project(project.id)!!.shots.size)
+    }
+
+    @Test
     fun appliedAiShotsInheritFrameRelayButNotUntrustedSourceTaskIdentity() {
         val store = store()
         val project = store.create("Film", "wf")!!

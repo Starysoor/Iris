@@ -995,10 +995,14 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val loading: Boolean = false,
         val suggestions: List<DirectorPrompts.SuggestedShot> = emptyList(),
         val selected: Set<Int> = emptySet(),
+        val projectId: String? = null,
+        val projectUpdatedAt: Long = 0L,
     )
 
     private val _planState = MutableStateFlow(PlanState())
     val planState: StateFlow<PlanState> = _planState.asStateFlow()
+    private val planGeneration = AtomicLong(0)
+    private var planJob: Job? = null
 
     fun togglePlanSuggestion(index: Int) {
         val current = _planState.value
@@ -1015,11 +1019,16 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun clearPlanSuggestions() {
+        planGeneration.incrementAndGet()
+        planJob?.cancel()
         _planState.value = PlanState()
     }
 
     /** The user can correct the AI plan locally before applying any changes. */
-    fun editPlanSuggestion(index: Int, prompt: String, cameraNotes: String, seconds: Int?) {
+    fun editPlanSuggestion(
+        index: Int, prompt: String, cameraNotes: String, seconds: Int?,
+        referenceAssetIds: List<String>? = null,
+    ) {
         if (prompt.isBlank() || (seconds != null && seconds !in 1..3600)) return
         val state = _planState.value
         if (index !in state.suggestions.indices || state.loading) return
@@ -1028,11 +1037,12 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 prompt = prompt.trim(),
                 cameraNotes = cameraNotes.trim(),
                 suggestedSeconds = seconds,
+                referenceAssetIds = referenceAssetIds ?: previous.referenceAssetIds,
             ) else previous
         })
     }
 
-    /** Suggests a shot plan via the configured AI; advice only, no side effects. */
+    /** Ask the configured AI for grounded v1 JSON; legacy line outputs remain parseable. */
     fun suggestShotPlan(projectId: String) {
         val project = container.projectStore.project(projectId) ?: return
         val settings = container.aiSettingsStore.load()
@@ -1040,41 +1050,71 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             _message.value = AppStrings.get(R.string.gen_vm_ai_not_configured)
             return
         }
-        if (_planState.value.loading) return
-        viewModelScope.launch {
-            _planState.value = PlanState(loading = true)
+        planJob?.cancel()
+        val generation = planGeneration.incrementAndGet()
+        _planState.value = PlanState(
+            loading = true,
+            projectId = projectId,
+            projectUpdatedAt = project.updatedAt,
+        )
+        planJob = viewModelScope.launch {
             val suggestions = withContext(Dispatchers.IO) {
-                runCatching {
+                try {
                     val text = container.aiRepository.chat(
                         DirectorPrompts.system(),
-                        DirectorPrompts.user(project, _workflows.value.map { 
-                            "${it.providerLabel} · ${it.name}"
+                        DirectorPrompts.user(project, _workflows.value.map {
+                            "${it.path} · ${it.providerLabel} · ${it.name}"
                         }),
                     )
                     DirectorPrompts.parsePlan(text)
-                }.getOrElse {
-                    _message.value = it.message ?: it.javaClass.simpleName
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (error: Exception) {
+                    _message.value = error.message ?: error.javaClass.simpleName
                     emptyList()
                 }
             }
+            if (!isActive || generation != planGeneration.get()) return@launch
+            val availableProject = container.projectStore.project(projectId)
+            if (availableProject == null || availableProject.updatedAt != project.updatedAt) {
+                _message.value = AppStrings.get(R.string.studio_ai_stale_plan)
+                _planState.value = PlanState()
+                return@launch
+            }
             _planState.value = PlanState(
                 loading = false,
+                projectId = projectId,
+                projectUpdatedAt = project.updatedAt,
                 suggestions = suggestions,
-                selected = suggestions.indices.toSet(),
+                // Never auto-select invented, stale or mismatched image references.
+                selected = suggestions.indices.filter { index ->
+                    DirectorPrompts.validationIssues(suggestions[index], project).isEmpty()
+                }.toSet(),
             )
         }
     }
 
-    /** Applies the selected suggestions as local draft shots; never generates. */
+    /** Applies only selected, validated local draft shots; never generates or pays. */
     fun applyPlanSuggestions(projectId: String) {
         val state = _planState.value
+        val project = container.projectStore.project(projectId) ?: return
+        if (state.projectId != projectId || state.projectUpdatedAt != project.updatedAt) {
+            _message.value = AppStrings.get(R.string.studio_ai_stale_plan)
+            return
+        }
         val chosen = state.suggestions.filterIndexed { index, _ -> index in state.selected }
         if (chosen.isEmpty()) return
+        val errors = chosen.flatMap { DirectorPrompts.validationIssues(it, project) }
+        if (errors.isNotEmpty()) {
+            _message.value = AppStrings.get(R.string.studio_ai_invalid_plan, errors.first())
+            return
+        }
         val drafts = chosen.map { suggestion ->
             ProjectShot(
                 prompt = suggestion.prompt,
                 cameraNotes = suggestion.cameraNotes,
                 plannedDurationSeconds = suggestion.suggestedSeconds,
+                referenceAssetIds = suggestion.referenceAssetIds,
             )
         }
         if (container.projectStore.addPlannedShots(projectId, drafts)) {

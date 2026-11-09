@@ -153,4 +153,12 @@
     <string name="studio_binding_choose">为此输入位选择项目素材</string>
     <string name="studio_binding_clear">取消绑定</string>
     <string name="studio_binding_no_assets">项目内没有符合该输入位的素材</string>
+    <!-- Versioned, grounded AI director plans (#101) -->
+    <string name="studio_ai_stale_plan">AI 规划期间项目内容发生变化。请重新生成建议，避免覆盖较新的修改。</string>
+    <string name="studio_ai_invalid_plan">这项建议暂不可应用：%1$s</string>
+    <string name="studio_ai_ref_count">建议引用图片：%1$d 张</string>
+    <string name="studio_ai_model_hint">建议模型（需要人工核验）：%1$s</string>
+    <string name="studio_ai_rationale">建议依据：%1$s</string>
+    <string name="studio_ai_risk">应用前需要确认：%1$s</string>
+    <string name="studio_ai_select_references">本镜头使用的项目参考图片（由你确认）</string>
 </resources>
