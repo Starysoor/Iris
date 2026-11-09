@@ -52,6 +52,7 @@ object ProjectCodec {
         .put("defaultValues", JSONObject(project.defaultValues))
         .put("workflowRecipeId", project.workflowRecipeId)
         .put("stageWorkflowPaths", JSONObject(project.stageWorkflowPaths))
+        .put("stageMediaBindings", JSONObject(project.stageMediaBindings))
         .put("chainFrames", project.chainFrames)
         .put("budget", project.budget ?: JSONObject.NULL)
         .put("createdAt", project.createdAt)
@@ -95,6 +96,10 @@ object ProjectCodec {
                 .takeIf(StudioWorkflowRecipes::supports) ?: StudioWorkflowRecipes.TEXT_TO_VIDEO,
             stageWorkflowPaths = stringMap(o.optJSONObject("stageWorkflowPaths"))
                 .filterKeys(StudioWorkflowRecipes::isModelKind),
+            stageMediaBindings = stringMap(o.optJSONObject("stageMediaBindings"))
+                .filterKeys { it.length <= 512 && "::" in it }
+                .filterValues { it.isNotBlank() && it.length <= 128 }
+                .entries.take(128).associate { it.key to it.value },
             chainFrames = o.optBoolean("chainFrames", true),
             budget = nullableDouble(o, "budget"),
             shots = shots,

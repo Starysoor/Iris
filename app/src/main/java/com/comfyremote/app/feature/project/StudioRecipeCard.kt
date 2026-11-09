@@ -22,6 +22,7 @@ import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.project.StudioStagePreflight
+import com.comfyremote.app.data.project.StudioStageBindings
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.IrisCard
@@ -38,6 +39,7 @@ internal fun StudioRecipeCard(
     models: List<ProjectWorkflowOption>,
     inspection: ProjectViewModel.StageInspection,
     onInspectStage: (String, String) -> Unit,
+    onBindStageInput: (String, String, String?) -> Unit,
     onChooseRecipe: (String) -> Unit,
     onChooseModel: (String, String) -> Unit,
     onRunStage: (String) -> Unit,
@@ -146,7 +148,14 @@ internal fun StudioRecipeCard(
                                 style = MaterialTheme.typography.bodySmall)
                         }
                         inspection.report != null ->
-                            StudioContractDetails(inspection.report)
+                            StudioContractDetails(
+                                report = inspection.report,
+                                project = project,
+                                workflowPath = selectedPath,
+                                onBindAsset = { field, assetId ->
+                                    onBindStageInput(kind, field, assetId)
+                                },
+                            )
                         else -> Text(stringResource(R.string.studio_contract_loading))
                     }
                 }
@@ -251,7 +260,13 @@ private fun stepLabel(step: StudioWorkflowRecipes.Step): String = stringResource
 
 /** Displays only facts from the provider's detailed schema, never name guesses. */
 @Composable
-private fun StudioContractDetails(report: StudioStagePreflight.Report) {
+private fun StudioContractDetails(
+    report: StudioStagePreflight.Report,
+    project: VideoProject,
+    workflowPath: String,
+    onBindAsset: (String, String?) -> Unit,
+) {
+    var choosingField by remember(report.workflowId, project.id) { mutableStateOf<String?>(null) }
     Text(report.modelName, style = MaterialTheme.typography.titleSmall)
     Text(
         stringResource(R.string.studio_contract_summary, report.imageInputs,
@@ -302,6 +317,47 @@ private fun StudioContractDetails(report: StudioStagePreflight.Report) {
             )
             if (input.role != com.comfyremote.app.data.reference.ReferenceRole.AUTO) {
                 Text(input.role.name, style = MaterialTheme.typography.bodySmall)
+            }
+        }
+        if (input.type == "image" || input.type == "audio") {
+            val key = StudioStageBindings.key(workflowPath, input.field)
+            val selectedId = project.stageMediaBindings[key]
+            val selectedAsset = project.assets.firstOrNull { it.id == selectedId }
+            Text(
+                selectedAsset?.label?.ifBlank { selectedAsset.path.substringAfterLast('/') }
+                    ?: stringResource(R.string.studio_bind_unselected),
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant,
+            )
+            TextButton(onClick = {
+                choosingField = if (choosingField == input.field) null else input.field
+            }) {
+                Text(stringResource(R.string.studio_bind_choose))
+            }
+            if (choosingField == input.field) {
+                val candidates = StudioStageBindings.candidates(input, project.assets)
+                if (candidates.isEmpty()) {
+                    Text(
+                        stringResource(R.string.studio_bind_no_candidates),
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                }
+                if (selectedId != null) {
+                    TextButton(onClick = {
+                        onBindAsset(input.field, null)
+                        choosingField = null
+                    }) { Text(stringResource(R.string.studio_bind_clear)) }
+                }
+                candidates.forEach { asset ->
+                    TextButton(onClick = {
+                        onBindAsset(input.field, asset.id)
+                        choosingField = null
+                    }) {
+                        Text((if (asset.id == selectedId) "✓ " else "") +
+                            asset.label.ifBlank { asset.path.substringAfterLast('/') })
+                    }
+                }
             }
         }
         if (input.min != null || input.max != null) {

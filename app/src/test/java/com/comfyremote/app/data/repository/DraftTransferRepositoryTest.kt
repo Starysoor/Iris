@@ -47,4 +47,25 @@ class DraftTransferRepositoryTest {
         assertNull(repo.peek())
         assertNull(repo.consume("autodl:seedance"))
     }
+
+    @Test
+    fun oneShotExactMediaMappingIsConsumedOnlyByMatchingWorkflow() {
+        val repo = DraftTransferRepository()
+        val transfer = DraftTransfer(
+            workflowPath = "autodl:video",
+            workflowName = "Video",
+            values = emptyMap(),
+            randomSeed = true,
+            boundMediaFieldPaths = mapOf(
+                "first_frame" to "/private/front.png",
+                "last_frame" to "/private/back.png",
+            ),
+        )
+        repo.put(transfer)
+        assertNull(repo.consume("autodl:other"))
+        assertEquals(transfer.boundMediaFieldPaths,
+            repo.consume("autodl:video")?.boundMediaFieldPaths)
+        assertNull(repo.consume("autodl:video"))
+    }
+
 }

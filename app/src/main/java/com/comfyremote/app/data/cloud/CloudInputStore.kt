@@ -63,6 +63,39 @@ class CloudInputStore(private val context: Context) {
         }
     }
 
+    /**
+     * Copy an already imported project audio file into the hosted input cache.
+     * Never loads a large audio file wholly into heap; never mutates the source.
+     */
+    suspend fun saveAudioFromFile(path: String): String = withContext(Dispatchers.IO) {
+        val source = File(path)
+        if (!source.isFile || !source.canRead() || source.length() <= 0L) {
+            throw IllegalStateException("Project audio source is missing or unreadable")
+        }
+        val extension = source.extension.lowercase()
+        if (extension !in AUDIO_EXTENSIONS) {
+            throw IllegalArgumentException("Unsupported project audio format")
+        }
+        if (source.length() > BoundedMediaInput.MAX_AUDIO_BYTES) {
+            throw IllegalArgumentException("Project audio exceeds size limit")
+        }
+        val target = File(audioDir,
+            "project_audio_${System.currentTimeMillis()}_${(1000..9999).random()}.$extension")
+        val tmp = File(audioDir, target.name + ".tmp")
+        try {
+            source.inputStream().use { input ->
+                FileOutputStream(tmp).use { output ->
+                    BoundedMediaInput.copy(input, output, BoundedMediaInput.MAX_AUDIO_BYTES)
+                    output.fd.sync()
+                }
+            }
+            if (!tmp.renameTo(target)) throw IOException("Cannot store project audio safely")
+            PREFIX + target.absolutePath
+        } finally {
+            tmp.delete()
+        }
+    }
+
     fun isAudioValue(value: String): Boolean {
         val path = localPath(value) ?: return false
         return File(path).extension.lowercase() in AUDIO_EXTENSIONS

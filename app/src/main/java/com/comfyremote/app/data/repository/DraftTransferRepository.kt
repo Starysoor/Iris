@@ -21,6 +21,8 @@ data class DraftTransfer(
     val reuseAcrossWorkflows: Boolean = false,
     /** Multiple local reference images for consecutive image inputs. */
     val referenceLocalPaths: List<String> = emptyList(),
+    /** Exact input name -> explicit project media path, never inferred by position. */
+    val boundMediaFieldPaths: Map<String, String> = emptyMap(),
 )
 
 class DraftTransferRepository {

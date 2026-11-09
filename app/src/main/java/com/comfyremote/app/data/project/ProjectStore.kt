@@ -148,6 +148,30 @@ class ProjectStore internal constructor(private val file: File) {
         }
     }
 
+    /** An exact provider input can be bound only to a known project asset. */
+    fun bindStageMedia(
+        projectId: String,
+        workflowPath: String,
+        field: String,
+        assetId: String?,
+    ): Boolean = synchronized(lock) {
+        if (workflowPath.isBlank() || field.isBlank() ||
+            workflowPath.length > 400 || field.length > 100) return@synchronized false
+        var changed = false
+        val persisted = updateLocked(projectId) { project ->
+            val key = StudioStageBindings.key(workflowPath, field)
+            if (assetId != null && project.assets.none { it.id == assetId }) return@updateLocked project
+            if (assetId != null && key !in project.stageMediaBindings &&
+                project.stageMediaBindings.size >= 128) return@updateLocked project
+            val next = if (assetId == null) project.stageMediaBindings - key
+                else project.stageMediaBindings + (key to assetId)
+            if (next == project.stageMediaBindings) return@updateLocked project
+            changed = true
+            project.copy(stageMediaBindings = next, updatedAt = System.currentTimeMillis())
+        }
+        changed && persisted
+    }
+
     /** Toggles the optional tail-frame relay. Turning it off clears automatic refs only. */
     fun setChainFrames(projectId: String, enabled: Boolean): Boolean = update(projectId) { project ->
         project.copy(
@@ -364,6 +388,7 @@ class ProjectStore internal constructor(private val file: File) {
             project.copy(
                 assets = remaining,
                 profiles = profiles,
+                stageMediaBindings = project.stageMediaBindings.filterValues { it != assetId },
                 shots = rebaseAutoReferences(cleaned, project.chainFrames),
                 updatedAt = System.currentTimeMillis(),
             )

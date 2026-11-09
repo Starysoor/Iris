@@ -81,6 +81,31 @@ class ProjectStoreTest {
     }
 
     @Test
+    fun stageBindingCanBeSavedClearedAndRemovedAlongWithAssetWithoutChangingTakes() {
+        val store = store()
+        val project = store.create("Film", "video")!!
+        val asset = ProjectAsset(
+            id = "start-asset", path = "/private/start.png", role = ReferenceRole.START_FRAME,
+        )
+        assertTrue(store.addAsset(project.id, asset))
+        val key = StudioStageBindings.key("autodl:video", "start_frame")
+        assertFalse(store.bindStageMedia(project.id, "", "start_frame", asset.id))
+        assertFalse(store.bindStageMedia(project.id, "autodl:video", "start_frame", "missing"))
+        assertTrue(store.bindStageMedia(project.id, "autodl:video", "start_frame", asset.id))
+        val loaded = ProjectStore(File(temp.root, "projects.json")).project(project.id)!!
+        assertEquals(asset.id, loaded.stageMediaBindings[key])
+        assertTrue(store.removeAsset(project.id, asset.id))
+        assertTrue(store.project(project.id)!!.stageMediaBindings.isEmpty())
+        assertTrue(store.project(project.id)!!.shots.isEmpty())
+
+        val second = ProjectAsset(id = "second", path = "/private/other.png")
+        assertTrue(store.addAsset(project.id, second))
+        assertTrue(store.bindStageMedia(project.id, "autodl:video", "start_frame", second.id))
+        assertTrue(store.bindStageMedia(project.id, "autodl:video", "start_frame", null))
+        assertTrue(store.project(project.id)!!.stageMediaBindings.isEmpty())
+    }
+
+    @Test
     fun historyLinkedTakeIsCandidateAndKeepsTimelineAndSelectedVersionSafe() {
         val store = store()
         val project = store.create("Film", "wf")!!

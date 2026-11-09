@@ -146,4 +146,12 @@
     <string name="studio_contract_bounds">Allowed range: %1$s to %2$s (provider rule)</string>
     <string name="studio_contract_options">Supported options: %1$s</string>
     <string name="studio_contract_shortfall">Not enough distinct matching project files for these required slots: %1$s. Import more media or upload directly in Create.</string>
+    <!-- Explicit stage media mapping (#101) -->
+    <string name="studio_bind_requires_check">Check the current model inputs before attaching or using saved media.</string>
+    <string name="studio_bind_invalid">A linked input no longer matches the model or its project asset. Check the binding.</string>
+    <string name="studio_bind_upload_failed">One or more linked media inputs failed. Fix them before any paid generation.</string>
+    <string name="studio_bind_choose">Choose project media for this input</string>
+    <string name="studio_bind_unselected">No project media bound to this input</string>
+    <string name="studio_bind_no_candidates">No compatible project media available. Import the required type in Assets.</string>
+    <string name="studio_bind_clear">Remove binding</string>
 </resources>

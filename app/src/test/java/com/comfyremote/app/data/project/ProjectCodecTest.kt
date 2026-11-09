@@ -68,6 +68,9 @@ class ProjectCodecTest {
                 "video" to "autodl:video",
                 "audio" to "autodl:audio",
             ),
+            stageMediaBindings = mapOf(
+                StudioStageBindings.key("autodl:video", "start_frame") to "asset-hero",
+            ),
             chainFrames = false,
             budget = 12.5,
             shots = listOf(shot),
@@ -114,6 +117,7 @@ class ProjectCodecTest {
         ))).single().shots.single().plannedDurationSeconds)
         assertNull(restored.budget)
         assertNull(restored.shots.singleOrNull()?.let { it.cameraNotes })
+        assertTrue(restored.stageMediaBindings.isEmpty())
         assertEquals("Plain", restored.title)
         assertTrue(restored.shots.isEmpty())
         assertTrue(restored.assets.isEmpty())

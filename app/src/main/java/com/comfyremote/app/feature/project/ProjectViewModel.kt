@@ -19,6 +19,7 @@ import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
 import com.comfyremote.app.data.project.StudioStagePreflight
+import com.comfyremote.app.data.project.StudioStageBindings
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
 import com.comfyremote.app.data.project.VideoExporter
@@ -237,6 +238,37 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** Explicitly binds a local project asset to an actual provider field name. */
+    fun bindStageInput(projectId: String, kind: String, fieldName: String, assetId: String?) {
+        val project = container.projectStore.project(projectId) ?: return
+        val path = project.stageWorkflowPaths[kind]?.takeIf { it.isNotBlank() }
+            ?: if (kind == "video") project.workflowPath else ""
+        val check = _stageInspection.value
+        val report = check.report
+        if (check.projectId != projectId || check.kind != kind ||
+            check.workflowPath != path || check.loading ||
+            report?.support != StudioStagePreflight.Support.CONFIGURABLE) {
+            _message.value = AppStrings.get(R.string.studio_bind_requires_check)
+            return
+        }
+        val input = report.inputs.firstOrNull { it.field == fieldName }
+        if (input == null || input.type !in listOf("image", "audio")) {
+            _message.value = AppStrings.get(R.string.studio_bind_invalid)
+            return
+        }
+        if (assetId != null) {
+            val asset = project.assets.firstOrNull { it.id == assetId }
+            if (asset == null || !StudioStageBindings.matches(input, asset)) {
+                _message.value = AppStrings.get(R.string.studio_bind_invalid)
+                return
+            }
+        }
+        if (!container.projectStore.bindStageMedia(projectId, path, fieldName, assetId)) {
+            // Clearing an already-empty field is also a safe no-op.
+            if (assetId != null) _message.value = AppStrings.get(R.string.board_err_persist)
+        }
+    }
+
     /** Open an independently submitted image/video/audio stage with a persistent project id. */
     fun openStage(projectId: String, kind: String): Pair<String, String>? {
         val project = container.projectStore.project(projectId) ?: return null
@@ -253,6 +285,28 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return null
         }
+        val checked = _stageInspection.value
+        val hasBoundInputs = project.stageMediaBindings.keys.any {
+            it.startsWith("$path::")
+        }
+        val bindings = if (hasBoundInputs) {
+            val report = checked.report
+            if (checked.projectId != projectId || checked.workflowPath != path ||
+                checked.kind != kind || checked.loading ||
+                report?.support != StudioStagePreflight.Support.CONFIGURABLE) {
+                _message.value = AppStrings.get(R.string.studio_bind_requires_check)
+                return null
+            }
+            val resolved = StudioStageBindings.resolve(project, path, report)
+            if (!resolved.valid || resolved.fieldPaths.values.any { media ->
+                val file = java.io.File(media)
+                !file.isFile || !file.canRead()
+            }) {
+                _message.value = AppStrings.get(R.string.studio_bind_invalid)
+                return null
+            }
+            resolved.fieldPaths
+        } else emptyMap()
         val name = "${project.title} · ${option.name}"
         container.draftTransferRepository.put(DraftTransfer(
             workflowPath = path,
@@ -264,6 +318,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             randomSeed = true,
             storyboardProjectId = projectId,
             storyboardShotId = null,
+            boundMediaFieldPaths = bindings,
         ))
         return path to name
     }

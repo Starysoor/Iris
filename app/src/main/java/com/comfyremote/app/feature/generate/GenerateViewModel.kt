@@ -40,6 +40,7 @@ import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.R
 import com.comfyremote.app.ui.AppStrings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -96,6 +97,8 @@ data class GenerateUiState(
     val presets: List<PromptPreset> = emptyList(),
     val presetQuery: String = "",
     val uploads: Map<String, ImageUploadStatus> = emptyMap(),
+    /** Errors in explicit Studio field-to-media handoff block paid submission. */
+    val boundInputIssues: Map<String, String> = emptyMap(),
     val batchCount: Int = 1,
     val batchLocalQueue: Boolean = true,
     /** Storyboard shots bind one task per shot, so batch controls are locked to 1. */
@@ -194,6 +197,9 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         viewModelScope.launch {
             container.incomingMedia.pending.collect { pending ->
                 if (pending.isNotEmpty() && _state.value.draft?.fields?.any { it.kind == FieldKind.IMAGE } == true) {
+                    transfer?.boundMediaFieldPaths?.takeIf { it.isNotEmpty() }?.let {
+                        applyBoundMediaFieldPaths(it)
+                    }
                     consumeIncomingMedia()
                 }
             }
@@ -230,7 +236,10 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         pendingStoryboardShotId = null
         _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
-        _state.update { it.copy(loading = true, error = null, draft = null, insight = null) }
+        _state.update { it.copy(
+            loading = true, error = null, draft = null, insight = null,
+            uploads = emptyMap(), boundInputIssues = emptyMap(),
+        ) }
         viewModelScope.launch {
             runCatching { buildDraft(path, name) }
                 .onSuccess { (baseDraft, conv) ->
@@ -392,7 +401,10 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         ) to conv
     }
 
-    fun updateValue(key: String, value: String) = updateDraft { it.copy(values = it.values + (key to value)) }
+    fun updateValue(key: String, value: String) {
+        updateDraft { it.copy(values = it.values + (key to value)) }
+        _state.update { it.copy(boundInputIssues = it.boundInputIssues - key) }
+    }
     fun toggleRandomSeed() = updateDraft { it.copy(randomSeed = !it.randomSeed) }
     fun setPresetQuery(value: String) = _state.update { it.copy(presetQuery = value) }
     fun setBatchCount(value: Int) {
@@ -441,6 +453,12 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 }
                 return
             }
+        }
+        if (_state.value.boundInputIssues.isNotEmpty()) {
+            _state.update {
+                it.copy(message = AppStrings.get(R.string.studio_bind_upload_failed))
+            }
+            return
         }
         if (_state.value.uploads.values.any { it.phase == ImageUploadPhase.UPLOADING }) {
             _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_wait_media)) }
@@ -942,6 +960,58 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 }.onFailure { e ->
                     setUpload(field.key, ImageUploadStatus(ImageUploadPhase.FAILED, e.message))
                 }
+        }
+    }
+
+    /**
+     * Exact typed input binding from Studio. Never zips by field order or drops
+     * excess multi-reference paths. Uploads are staged; paid work cannot begin
+     * while a binding is unresolved or copying.
+     */
+    private fun applyBoundMediaFieldPaths(mediaFieldPaths: Map<String, String>) {
+        val draft = _state.value.draft ?: return
+        val fields = draft.fields.associateBy { it.key }
+        val unknown = mediaFieldPaths.keys.filter { key ->
+            fields[key]?.kind !in setOf(FieldKind.IMAGE, FieldKind.AUDIO)
+        }
+        if (unknown.isNotEmpty()) {
+            _state.update { state ->
+                state.copy(
+                    boundInputIssues = unknown.associateWith { "Unknown or unsupported media input" },
+                    message = AppStrings.get(R.string.studio_bind_upload_failed),
+                )
+            }
+            return
+        }
+        // Register *all* pending uploads before the coroutine can yield.
+        mediaFieldPaths.keys.forEach { key ->
+            setUpload(key, ImageUploadStatus(ImageUploadPhase.UPLOADING))
+        }
+        viewModelScope.launch {
+            mediaFieldPaths.forEach { (key, path) ->
+                val field = fields[key] ?: return@forEach
+                try {
+                    val input = when (field.kind) {
+                        FieldKind.IMAGE -> referenceValueFor(draft, field, path)
+                        FieldKind.AUDIO -> {
+                            if (!draft.isCloud) throw IllegalStateException("Local audio mapping unsupported")
+                            container.cloudInputStore.saveAudioFromFile(path)
+                        }
+                        else -> throw IllegalArgumentException("Unsupported media input: $key")
+                    }
+                    updateValue(key, input)
+                    clearUpload(key)
+                } catch (cancel: CancellationException) {
+                    throw cancel
+                } catch (error: Exception) {
+                    val problem = error.message ?: error.javaClass.simpleName
+                    setUpload(key, ImageUploadStatus(ImageUploadPhase.FAILED, problem))
+                    _state.update { state ->
+                        state.copy(boundInputIssues = state.boundInputIssues + (key to problem),
+                            message = AppStrings.get(R.string.studio_bind_upload_failed))
+                    }
+                }
+            }
         }
     }
 
