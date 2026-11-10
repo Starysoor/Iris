@@ -41,10 +41,18 @@ data class TasksUiState(
                     TaskFilter.DONE -> task.isTerminal
                 }
             }
-            .filter { serverUrl == null || it.request.serverUrl == serverUrl }
-            .filter { projectFilter == null || it.request.storyboardProjectId.orEmpty() == projectFilter }
+            .filter { TaskBulkSelection.matchesScope(it, serverUrl, projectFilter) }
             .sortedWith(compareByDescending<GenerationTask> { it.isActive }.thenByDescending { it.createdAt })
             .toList()
+
+    val queuedTargets: List<GenerationTask>
+        get() = TaskBulkSelection.queued(tasks, serverUrl, projectFilter)
+
+    val failedTargets: List<GenerationTask>
+        get() = TaskBulkSelection.failed(tasks, serverUrl, projectFilter)
+
+    val finishedTargets: List<GenerationTask>
+        get() = TaskBulkSelection.finished(tasks, serverUrl, projectFilter)
 
     val serverUrls: List<String>
         get() = tasks.map { it.request.serverUrl }.filter(String::isNotBlank).distinct()
@@ -93,7 +101,16 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
     fun toggleLocalQueuePaused() = container.generationManager.toggleLocalQueuePaused()
 
     fun delete(id: String) { container.generationManager.deleteTask(id) }
-    fun deleteFinished() { container.generationManager.deleteFinished() }
+    fun deleteFinished() {
+        // Bulk actions must never erase finished tasks from another selected project
+        // or server. Preserve the original atomic global path for the unfiltered view.
+        if (_projectFilter.value == null && _serverUrl.value == null) {
+            container.generationManager.deleteFinished()
+        } else {
+            TaskBulkSelection.finished(tasks.value, _serverUrl.value, _projectFilter.value)
+                .forEach { container.generationManager.deleteTask(it.taskId) }
+        }
+    }
     fun cancel(id: String) {
         viewModelScope.launch {
             val outcome = container.generationManager.cancel(id)
@@ -105,7 +122,11 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
 
     fun cancelQueued() {
         viewModelScope.launch {
-            val outcomes = container.generationManager.cancelQueued(_serverUrl.value)
+            // Capture the user-visible scope before any suspension or remote call.
+            val outcomes = container.generationManager.cancelMany(
+                TaskBulkSelection.queued(tasks.value, _serverUrl.value, _projectFilter.value)
+                    .map { it.taskId },
+            )
             val failed = outcomes.count { !it.cancelled && it.error != null }
             _message.value = if (failed > 0) {
                 AppStrings.get(R.string.tasks_msg_cancel_partial, failed)
@@ -117,8 +138,7 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
 
     fun retryFailed() {
         val serverUrl = _serverUrl.value
-        val requests = tasks.value
-            .filter { it.phase == GenerationPhase.FAILED && (serverUrl == null || it.request.serverUrl == serverUrl) }
+        val requests = TaskBulkSelection.failed(tasks.value, serverUrl, _projectFilter.value)
             .sortedBy { it.createdAt }
             .map {
                 it.request.copy(
