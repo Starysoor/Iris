@@ -22,7 +22,7 @@ class TasksRetryPolicyTest {
         val existing = listOf(GenerationTask("old", request("p2", "s2", cost = 7), GenerationPhase.SUCCEEDED))
         val batch = listOf(request("p1", "s1"), request("p2", "s2", cost = 4))
         val reject = TasksRetryPolicy.evaluate(batch, existing) { id ->
-            TasksRetryPolicy.ProjectInfo(budget = 10.0, shotStatuses = mapOf(if (id == "p1") "s1" else "s2" to "done"))
+            TasksRetryPolicy.ProjectInfo(budget = 10.0, shotStatuses = mapOf((if (id == "p1") "s1" else "s2") to "done"))
         }
         assertTrue(reject is TasksRetryPolicy.Rejection.OverBudget)
         assertEquals("p2", (reject as TasksRetryPolicy.Rejection.OverBudget).projectId)
