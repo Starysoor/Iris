@@ -2,7 +2,7 @@ name: Release
 
 on:
   push:
-    branches: [main]
+    branches: [main, 'release/v2.4.0-beta.2']
     tags: ['v*']
 
 permissions:
@@ -10,7 +10,7 @@ permissions:
 
 jobs:
   build:
-    if: "${{ startsWith(github.ref, 'refs/tags/v') || (github.ref == 'refs/heads/main' && startsWith(github.event.head_commit.message, 'release: v')) }}"
+    if: "${{ startsWith(github.ref, 'refs/tags/v') || ((github.ref == 'refs/heads/main' || github.ref == 'refs/heads/release/v2.4.0-beta.2') && startsWith(github.event.head_commit.message, 'release: v')) }}"
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -58,6 +58,9 @@ jobs:
       - name: Run unit tests
         run: gradle :app:testDebugUnitTest --no-daemon
 
+      - name: Lint and debug build
+        run: gradle :app:lintDebug :app:assembleDebug --no-daemon
+
       - name: Build release APK
         run: gradle :app:assembleRelease --no-daemon
 
@@ -81,6 +84,12 @@ jobs:
       - name: Name release APK
         run: cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/Iris-${RELEASE_TAG}.apk"
 
+      - name: Write APK SHA-256 checksum
+        shell: bash
+        run: |
+          cd app/build/outputs/apk/release
+          sha256sum "Iris-${RELEASE_TAG}.apk" > "Iris-${RELEASE_TAG}.apk.sha256"
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
@@ -89,4 +98,8 @@ jobs:
           name: ${{ env.RELEASE_TAG }}
           body_path: docs/releases/${{ env.RELEASE_TAG }}.md
           generate_release_notes: false
-          files: app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk
+          prerelease: ${{ contains(env.RELEASE_TAG, '-beta.') }}
+          make_latest: ${{ contains(env.RELEASE_TAG, '-beta.') && 'false' || 'true' }}
+          files: |
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk.sha256
