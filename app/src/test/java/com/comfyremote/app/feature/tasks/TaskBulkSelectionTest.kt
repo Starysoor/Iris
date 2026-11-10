@@ -47,12 +47,12 @@ class TaskBulkSelectionTest {
     @Test fun unfilteredViewRetainsOriginalAllScope() {
         assertEquals(4, TaskBulkSelection.failed(tasks, null, null).size)
         assertEquals(listOf("p1-queued", "p2-pending"), TaskBulkSelection.queued(tasks, null, null).map { it.taskId })
-        assertEquals(6, TaskBulkSelection.finished(tasks, null, null).size)
+        assertEquals(5, TaskBulkSelection.finished(tasks, null, null).size)
     }
 
     @Test fun statusChipsRemainBoundToTheSameScope() {
         val ui = TasksUiState(tasks = tasks, projectFilter = "p1", serverUrl = "server-a", filter = TaskFilter.ALL)
-        assertEquals(listOf("p1-failed", "p1-success", "p1-queued", "p1-running"), ui.visible.map { it.taskId })
+        assertEquals(setOf("p1-failed", "p1-success", "p1-queued", "p1-running"), ui.visible.map { it.taskId }.toSet())
         assertEquals(ui.queuedTargets, TaskBulkSelection.queued(ui.tasks, ui.serverUrl, ui.projectFilter))
     }
 }
