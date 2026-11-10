@@ -6,6 +6,7 @@ import androidx.lifecycle.viewModelScope
 import com.comfyremote.app.AppContainer
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
+import com.comfyremote.app.data.project.BudgetGate
 import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.navigation.Routes
 import com.comfyremote.app.R
@@ -136,6 +137,27 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    /** A tasks-page retry is still a *new* paid request: do not bypass Studio budget
+     * enforcement simply because the user retried from Tasks rather than Create. */
+    private fun projectRetryError(requests: List<com.comfyremote.app.data.generation.GenerationRequest>): String? {
+        val rejection = TasksRetryPolicy.evaluate(requests, tasks.value) { projectId ->
+            container.projectStore.project(projectId)?.let { project ->
+                TasksRetryPolicy.ProjectInfo(project.budget, project.shots.associate { it.id to it.status })
+            }
+        } ?: return null
+        return when (rejection) {
+            is TasksRetryPolicy.Rejection.MissingProject,
+            is TasksRetryPolicy.Rejection.MissingShot -> AppStrings.get(R.string.proj_not_found)
+            is TasksRetryPolicy.Rejection.BusyShot -> AppStrings.get(R.string.gen_vm_storyboard_running)
+            is TasksRetryPolicy.Rejection.OverBudget -> AppStrings.get(
+                R.string.gen_vm_budget_blocked,
+                rejection.decision.budget,
+                rejection.decision.spentEstimate,
+                rejection.decision.newCost,
+            )
+        }
+    }
+
     fun retryFailed() {
         val serverUrl = _serverUrl.value
         val requests = TaskBulkSelection.failed(tasks.value, serverUrl, _projectFilter.value)
@@ -150,6 +172,7 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
             _message.value = AppStrings.get(R.string.tasks_msg_no_failed)
             return
         }
+        projectRetryError(requests)?.let { _message.value = it; return }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(requests, localQueue = true)
@@ -177,6 +200,7 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
             id = java.util.UUID.randomUUID().toString(),
             createdAt = System.currentTimeMillis(),
         )
+        projectRetryError(listOf(request))?.let { _message.value = it; return }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(listOf(request), localQueue = false)
