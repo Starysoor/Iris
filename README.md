@@ -13,14 +13,14 @@
 [![Android](https://img.shields.io/badge/Android-10%2B-82b5a2?logo=android&logoColor=white)](#快速开始--quick-start)
 [![License](https://img.shields.io/github/license/Starysoor/Iris?color=a9a0d5)](LICENSE)
 
-**[⬇ 获取正式版 APK](https://github.com/Starysoor/Iris/releases/latest)** · **[查看新界面](#真实界面--live-screens)** · **[Studio 开发计划](https://github.com/Starysoor/Iris/issues/57)** · **[使用指南](#文档导航--documentation)**
+**[⬇ 获取正式版 APK](https://github.com/Starysoor/Iris/releases/latest)** · **[🧪 beta.2 真机测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.2)** · **[查看新界面](#真实界面--live-screens)** · **[Studio 开发计划](https://github.com/Starysoor/Iris/issues/57)** · **[使用指南](#文档导航--documentation)**
 
 [简体中文](#中文介绍) · [English](#english-overview)
 
 </div>
 
 > [!IMPORTANT]
-> **版本说明 / Release status:** GitHub Releases 的稳定版为 **v2.3.2**。`main` 包含下一代 **Iris Studio** 的开发中功能；音轨混音与 v2.4.0 候选仍在审核及设备验收阶段（[#91](https://github.com/Starysoor/Iris/pull/91)、[#92](https://github.com/Starysoor/Iris/pull/92)、[#80](https://github.com/Starysoor/Iris/issues/80)）。下方截图取自真实 Android 模拟器运行的开发版，使用清楚标记的离线演示数据，不代表正式版已包含全部展示内容。
+> **版本说明 / Release status:** GitHub Releases 的稳定版仍为 **v2.3.2**；新版 **[v2.4.0-beta.2 测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.2)** 已签名发布（`versionCode 30`），包含 Studio 跨页联动、手动阶段配方、精确模型字段绑定和结构化 AI 导演等功能。PR #91 的独立音轨混音已合并；**完整 120 秒真机短片及跨厂商自动执行尚未完成验收**，分别见 [#80](https://github.com/Starysoor/Iris/issues/80) / [#101](https://github.com/Starysoor/Iris/issues/101)，不可将 beta.2 视为正式版。下方截图为真实 Android 模拟器的离线演示数据，非付费生成证明。
 
 ## 真实界面 · Live screens
 
@@ -81,11 +81,11 @@ flowchart LR
   H[预算和任务状态] -.-> D
 ```
 
-**开发说明：** `main` 已包含 Studio 核心开发代码，但完整音轨混音、预览与导出一致性、硬件编解码及完整短片 E2E 仍以 [发布任务 #80](https://github.com/Starysoor/Iris/issues/80) 为正式验收依据。
+**开发说明：** `main` 已包含 Studio 素材/项目/任务联动与音轨混合导出等代码，并通过相应自动化回归。最新已签名 [beta.2](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.2) 可供真机试用；完整 120 秒成片、实体设备更多机型和跨厂商自动编排仍需通过 [#80](https://github.com/Starysoor/Iris/issues/80) / [#101](https://github.com/Starysoor/Iris/issues/101) 的独立验收。
 
 ## 快速开始 · Quick start
 
-1. 从 [Releases](https://github.com/Starysoor/Iris/releases/latest) 下载稳定版 APK。为兼容原有升级路径，应用包名仍为 `com.comfyremote.app`。
+1. 从 [Releases](https://github.com/Starysoor/Iris/releases/latest) 下载稳定版 APK，或从 [beta.2 预发布页](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.2) 获取最新真机测试包。测试版安装前请备份数据。为兼容原有升级路径，应用包名仍为 `com.comfyremote.app`。
 2. **云端模式：** 在「设置 → 云服务」配置各 Provider 凭据；**本地模式：** 启动监听 `0.0.0.0:8188` 的 ComfyUI，使用局域网地址或已授权的 Tailscale 地址连接。
 3. 选择模型/工作流并编辑提示词与参考图，确认参数和费用提示，提交后在任务和结果页追踪输出。
 
@@ -133,7 +133,7 @@ Windows PowerShell 改用 `.\gradlew.bat`。发布由版本标签触发 GitHub A
 
 **Core capabilities:** multi-server ComfyUI; configurable cloud and OpenAI-compatible providers; image/video/audio workflows; first/last-frame and multi-image inputs; AI prompt skills; task progress and recovery; result playback and reuse. The project-driven **Iris Studio** is under active development.
 
-**Release clarity:** stable APK **v2.3.2**. Studio enhancements on `main` and in review are not yet a published v2.4.0. Screens above are genuine Android emulator captures populated with labeled offline demo fixtures. Follow [the release readiness issue](https://github.com/Starysoor/Iris/issues/80) for physical-device acceptance.
+**Release clarity:** stable APK **v2.3.2**; signed [v2.4.0-beta.2 prerelease](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.2) is available for device testing. Cross-page project links, manual model recipes, verified media-field mapping, and grounded AI director plans are included, but automatic cross-provider orchestration and the full 120-second real-device film are not yet verified. Screens above are genuine Android emulator captures with labeled offline demo fixtures. Follow [#80](https://github.com/Starysoor/Iris/issues/80) and [#101](https://github.com/Starysoor/Iris/issues/101) for remaining acceptance.
 
 Learn more: [Cloud services](docs/CloudProviders.md) · [AutoDL](docs/AutoDL.md) · [Studio model](docs/PROJECT_MODEL.md) · [Latest release](https://github.com/Starysoor/Iris/releases/latest).
 

@@ -1,5 +1,16 @@
 # Changelog
 
+## 2.4.0-beta.2 — Iris Studio 联动与结构化 AI 导演（测试版）
+
+- 将 Studio 的作品上下文连接至创作、任务、结果；项目/镜头关联、按作品筛选任务、结果导入候选 Take 或时间线，不影响原独立创作入口（#101 / PR #102）。
+- 新增三种需用户逐阶段确认的工作流配方；依据已配置 Provider 的实际输入规则查看图片/音频必填字段、角色、数量和限制，支持从项目素材到特定输入字段的显式绑定；无真实契约时拒绝猜测并阻断付费提交（PR #103 / #104）。
+- AI 导演支持 v1 结构化 JSON 镜头建议，带来源依据、风险、项目内图片 ID 校验、人工编辑与原子保存；不自行提交付费任务（PR #106）。
+- 保留先前 Studio 数据安全、媒体导入、音轨混音/试听与导出修复。完整跨 Provider 自动化 DAG、视频视觉理解和 120 秒实体设备成片尚未验收，见 #101 / #80。
+- 修复任务中心项目/服务器过滤后批量重试、取消和清理误操作其他项目的问题；任务重试/复制重新执行 Studio 预算与运行中镜头检查（PR #107）。
+- 升级测试版版本号到 2.4.0-beta.2（versionCode 30，包名不变）；附签名 APK 的 SHA-256 文件，保持 GitHub prerelease，不覆盖正式版最新入口。
+
+**测试版本，非 v2.4.0 正式发布。** 请先备份项目与素材，必要时继续使用稳定版 v2.3.2；旧 APK 降级安装不保证读取新版项目索引。
+
 ## Unreleased — Iris Studio issue hardening (PR #90)
 
 - Protect Take result files still owned by History and by the legacy storyboard rollback index; block active-task Take deletion and stale task-result overwrites; resolve out-of-order tail-frame selection.
