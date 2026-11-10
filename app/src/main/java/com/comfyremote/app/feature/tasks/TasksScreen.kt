@@ -55,14 +55,12 @@ fun TasksScreen(
     val projects by viewModel.projects.collectAsState()
     val message by viewModel.message.collectAsState()
     val tasks = ui.visible
-    val hasFinished = ui.tasks.any { it.isTerminal }
-    val hasQueued = ui.tasks.any { it.localPending || it.phase == GenerationPhase.QUEUEING || it.phase == GenerationPhase.QUEUED }
-    val hasFailed = ui.tasks.any { it.phase == GenerationPhase.FAILED }
-    val queuedTargets = ui.tasks.filter { task ->
-        task.isActive && (ui.serverUrl == null || task.request.serverUrl == ui.serverUrl) &&
-            (task.localPending || task.phase == GenerationPhase.PREPARING ||
-                task.phase == GenerationPhase.QUEUEING || task.phase == GenerationPhase.QUEUED)
-    }
+    // Confirmation counts and available bulk actions use the *same* selected
+    // server/project scope as the actual mutation, never the global task list.
+    val hasFinished = ui.finishedTargets.isNotEmpty()
+    val hasQueued = ui.queuedTargets.isNotEmpty()
+    val hasFailed = ui.failedTargets.isNotEmpty()
+    val queuedTargets = ui.queuedTargets
     val remoteCloudQueued = queuedTargets.count {
         it.isRemoteQueued && it.request.provider != "comfyui"
     }
