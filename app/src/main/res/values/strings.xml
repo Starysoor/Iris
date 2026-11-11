@@ -162,4 +162,16 @@
     <string name="studio_ai_rationale">Basis: %1$s</string>
     <string name="studio_ai_risk">Check before applying: %1$s</string>
     <string name="studio_ai_select_references">Project reference images for this shot (user-approved)</string>
+    <string name="proj_take_compare_open">Compare two Takes</string>
+    <string name="proj_take_compare_title">Take A / B comparison</string>
+    <string name="proj_take_compare_hint">Select a version in each column. Tap its thumbnail for a larger preview. Promoting a version does not rewrite the existing timeline.</string>
+    <string name="proj_take_compare_count">%1$d differences in saved settings</string>
+    <string name="proj_take_compare_preview">Open preview</string>
+    <string name="proj_take_compare_provider">Provider</string>
+    <string name="proj_take_compare_model">Model</string>
+    <string name="proj_take_compare_seed">Seed</string>
+    <string name="proj_take_compare_cost">Estimated cost</string>
+    <string name="proj_take_compare_refs">References</string>
+    <string name="proj_take_compare_params">Parameters</string>
+    <string name="proj_take_compare_prompt">Prompt</string>
 </resources>

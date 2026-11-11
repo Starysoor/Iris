@@ -161,4 +161,16 @@
     <string name="studio_ai_rationale">建议依据：%1$s</string>
     <string name="studio_ai_risk">应用前需要确认：%1$s</string>
     <string name="studio_ai_select_references">本镜头使用的项目参考图片（由你确认）</string>
+    <string name="proj_take_compare_open">并排对比两个 Take</string>
+    <string name="proj_take_compare_title">Take A / B 对比</string>
+    <string name="proj_take_compare_hint">两列分别选择候选版本。点击缩略图可放大预览；设为主版本不会改写现有时间线。</string>
+    <string name="proj_take_compare_count">已存参数有 %1$d 处差异</string>
+    <string name="proj_take_compare_preview">打开预览</string>
+    <string name="proj_take_compare_provider">服务商</string>
+    <string name="proj_take_compare_model">模型</string>
+    <string name="proj_take_compare_seed">种子</string>
+    <string name="proj_take_compare_cost">预估费用</string>
+    <string name="proj_take_compare_refs">参考素材</string>
+    <string name="proj_take_compare_params">参数</string>
+    <string name="proj_take_compare_prompt">提示词</string>
 </resources>
