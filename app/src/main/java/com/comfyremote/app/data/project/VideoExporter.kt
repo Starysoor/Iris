@@ -17,7 +17,6 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.Locale
 import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
@@ -149,44 +148,36 @@ class VideoExporter(private val context: Context) {
      * must land within [DURATION_TOLERANCE] of the plan expectation.
      */
     private fun verifyOutput(file: File, expectedMs: Long, requireAudio: Boolean): Long {
-        val metadata = runCatching {
+        val metadata = try {
             val retriever = MediaMetadataRetriever()
             try {
                 retriever.setDataSource(file.absolutePath)
-                val duration = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                val hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO)
-                    .equals("yes", ignoreCase = true)
-                val hasVideo = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO)
-                    .equals("yes", ignoreCase = true)
-                Triple(duration, hasAudio, hasVideo)
+                ExportOutputVerification.Metadata(
+                    durationMs = retriever.extractMetadata(
+                        MediaMetadataRetriever.METADATA_KEY_DURATION,
+                    )?.toLongOrNull(),
+                    // Android can return null for absent tracks; never dereference
+                    // platform-type String! here (see #108).
+                    hasAudio = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_AUDIO),
+                    hasVideo = retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_HAS_VIDEO),
+                )
             } finally {
                 retriever.release()
             }
-        }.getOrNull()
-        val measured = metadata?.first
-        if (measured == null || measured <= 0L || metadata?.third != true) {
+        } catch (failure: Exception) {
+            file.delete() // only our temporary rendered output, never source media
+            throw ExportOutputVerification.Invalid(
+                ExportOutputVerification.Reason.METADATA_UNREADABLE,
+                "Cannot inspect exported MP4 metadata: ${failure.message ?: failure.javaClass.simpleName}",
+                failure,
+            )
+        }
+        return try {
+            ExportOutputVerification.requireValid(metadata, expectedMs, requireAudio)
+        } catch (failure: ExportOutputVerification.Invalid) {
             file.delete()
-            throw IllegalStateException("Exported file is not playable")
+            throw failure
         }
-        if (requireAudio && metadata?.second != true) {
-            file.delete()
-            throw IllegalStateException("Exported file has no audio track despite an audio overlay")
-        }
-        if (expectedMs > 0) {
-            val low = expectedMs * (1 - DURATION_TOLERANCE)
-            val high = expectedMs * (1 + DURATION_TOLERANCE)
-            if (measured < low || measured > high) {
-                file.delete()
-                throw IllegalStateException(
-                    String.format(
-                        Locale.US,
-                        "Export duration %.1fs deviates from expected %.1fs",
-                        measured / 1000f, expectedMs / 1000f,
-                    ),
-                )
-            }
-        }
-        return measured
     }
 
     /**
