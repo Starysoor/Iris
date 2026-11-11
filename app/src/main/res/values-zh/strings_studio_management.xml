@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proj_mgmt_archive">归档项目</string>
+    <string name="proj_mgmt_unarchive">取消归档</string>
+    <string name="proj_mgmt_duplicate">复制项目制作计划</string>
+    <string name="proj_mgmt_current">当前</string>
+    <string name="proj_mgmt_completed">已完成</string>
+    <string name="proj_mgmt_archived">已归档</string>
+    <string name="proj_mgmt_all">全部</string>
+    <string name="proj_mgmt_empty_filter">此分类下暂时没有项目，可以切换筛选条件。</string>
+</resources>

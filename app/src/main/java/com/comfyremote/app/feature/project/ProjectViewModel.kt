@@ -57,6 +57,18 @@ data class ProjectWorkflowOption(
 class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val projects: StateFlow<List<VideoProject>> = container.projectStore.projects
     val projectLoadError: StateFlow<String?> = container.projectStore.loadError
+    fun setProjectArchived(projectId: String, archived: Boolean): Boolean {
+        val ok = container.projectStore.setArchived(projectId, archived)
+        if (!ok) _message.value = AppStrings.get(R.string.board_err_persist)
+        return ok
+    }
+
+    fun duplicateProject(projectId: String): VideoProject? {
+        val duplicate = container.projectStore.duplicateProject(projectId)
+        if (duplicate == null) _message.value = AppStrings.get(R.string.board_err_persist)
+        return duplicate
+    }
+
     fun availableProjectBackups() = container.projectStore.availableBackups()
 
     fun restoreProjectBackup(filename: String): Boolean {

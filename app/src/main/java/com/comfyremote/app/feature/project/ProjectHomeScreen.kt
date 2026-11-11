@@ -131,6 +131,25 @@ fun ProjectHomeScreen(
                                 },
                             )
                             DropdownMenuItem(
+                                text = {
+                                    Text(stringResource(
+                                        if (project?.archived == true) R.string.proj_mgmt_unarchive
+                                        else R.string.proj_mgmt_archive,
+                                    ))
+                                },
+                                onClick = {
+                                    menuOpen = false
+                                    if (viewModel.setProjectArchived(projectId, project?.archived != true)) onBack()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.proj_mgmt_duplicate)) },
+                                onClick = {
+                                    menuOpen = false
+                                    if (viewModel.duplicateProject(projectId) != null) onBack()
+                                },
+                            )
+                            DropdownMenuItem(
                                 text = { Text(stringResource(R.string.proj_backup_restore)) },
                                 onClick = { menuOpen = false; restoringBackup = true },
                             )

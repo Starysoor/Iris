@@ -5,6 +5,10 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.lazy.LazyRow
+import com.comfyremote.app.data.project.ProjectCatalogFilter
+import com.comfyremote.app.ui.components.IrisChip
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.lazy.LazyColumn
@@ -63,6 +67,8 @@ fun ProjectListScreen(
     val snackbar = remember { SnackbarHostState() }
     var creating by remember { mutableStateOf(false) }
     var restoringBackup by remember { mutableStateOf(false) }
+    var filterMode by remember { mutableStateOf(ProjectCatalogFilter.Mode.CURRENT) }
+    val filteredProjects = ProjectCatalogFilter.filter(projects, filterMode)
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -109,12 +115,40 @@ fun ProjectListScreen(
                 )
             }
         } else {
+            Column(Modifier.padding(pad).fillMaxSize()) {
+                LazyRow(
+                    Modifier.fillMaxWidth(),
+                    contentPadding = PaddingValues(horizontal = Spacing.gutter, vertical = Spacing.xs),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                ) {
+                    items(ProjectCatalogFilter.Mode.entries) { mode ->
+                        IrisChip(
+                            label = stringResource(when (mode) {
+                                ProjectCatalogFilter.Mode.CURRENT -> R.string.proj_mgmt_current
+                                ProjectCatalogFilter.Mode.COMPLETED -> R.string.proj_mgmt_completed
+                                ProjectCatalogFilter.Mode.ARCHIVED -> R.string.proj_mgmt_archived
+                                ProjectCatalogFilter.Mode.ALL -> R.string.proj_mgmt_all
+                            }),
+                            selected = filterMode == mode,
+                            onClick = { filterMode = mode },
+                            count = ProjectCatalogFilter.filter(projects, mode).size,
+                        )
+                    }
+                }
+                if (filteredProjects.isEmpty()) {
+                    Box(Modifier.fillMaxSize(), contentAlignment = Alignment.Center) {
+                        Text(
+                            stringResource(R.string.proj_mgmt_empty_filter),
+                            color = MaterialTheme.colorScheme.onSurfaceVariant,
+                        )
+                    }
+                } else {
             LazyColumn(
-                Modifier.padding(pad).fillMaxSize(),
+                Modifier.fillMaxSize(),
                 contentPadding = PaddingValues(start = Spacing.gutter, end = Spacing.gutter, top = Spacing.sm, bottom = Spacing.xl),
                 verticalArrangement = Arrangement.spacedBy(Spacing.sm),
             ) {
-                items(projects, key = { it.id }) { project ->
+                items(filteredProjects, key = { it.id }) { project ->
                     ProjectRow(
                         project = project,
                         workflowName = workflows.firstOrNull {
@@ -123,6 +157,8 @@ fun ProjectListScreen(
                             ?: project.workflowPath.ifBlank { project.workflowId },
                         onClick = { onOpenProject(project.id) },
                     )
+                }
+            }
                 }
             }
         }
