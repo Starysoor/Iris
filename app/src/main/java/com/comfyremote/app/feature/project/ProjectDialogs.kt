@@ -497,6 +497,7 @@ internal fun TakeWorkshopDialog(
     onDelete: (String) -> Unit,
 ) {
     var showDiscarded by remember(shot.id) { mutableStateOf(false) }
+    var comparing by remember(shot.id) { mutableStateOf(false) }
     val takes = shot.takes
         .filter { showDiscarded || it.status != "discarded" }
         .sortedWith(compareByDescending<ShotTake> { it.favorite }.thenByDescending { it.createdAt })
@@ -514,6 +515,12 @@ internal fun TakeWorkshopDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
+                }
+                if (takes.size >= 2) {
+                    TextAction(
+                        stringResource(R.string.proj_take_compare_open),
+                        onClick = { comparing = true },
+                    )
                 }
                 if (takes.isEmpty()) {
                     Text(
@@ -624,6 +631,14 @@ internal fun TakeWorkshopDialog(
             TextAction(stringResource(R.string.action_cancel), onClick = onDismiss, color = MaterialTheme.colorScheme.onSurfaceVariant)
         },
     )
+    if (comparing) {
+        TakeComparisonDialog(
+            shot = shot,
+            takes = takes,
+            onDismiss = { comparing = false },
+            onSelect = onSelect,
+        )
+    }
 }
 
 @Composable
