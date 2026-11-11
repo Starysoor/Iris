@@ -140,7 +140,9 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
     /** A tasks-page retry is still a *new* paid request: do not bypass Studio budget
      * enforcement simply because the user retried from Tasks rather than Create. */
     private fun projectRetryError(requests: List<com.comfyremote.app.data.generation.GenerationRequest>): String? {
-        val rejection = TasksRetryPolicy.evaluate(requests, tasks.value) { projectId ->
+        val rejection = TasksRetryPolicy.evaluate(
+            requests, tasks.value, container.cloudSpendStore.entries.value,
+        ) { projectId ->
             container.projectStore.project(projectId)?.let { project ->
                 TasksRetryPolicy.ProjectInfo(project.budget, project.shots.associate { it.id to it.status })
             }

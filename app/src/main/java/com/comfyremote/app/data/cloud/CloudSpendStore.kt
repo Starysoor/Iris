@@ -13,6 +13,8 @@ data class CloudSpendEntry(
     val workflowName: String,
     /** Cloud provider id (`openai`, `siliconflow`, ...), null for legacy entries. */
     val providerId: String? = null,
+    /** Stable Studio identity, null for old entries and independent tasks. */
+    val projectId: String? = null,
     /** Null when the provider did not expose a price for the selected options. */
     val points: Int?,
     val estimated: Boolean = true,
@@ -46,6 +48,7 @@ class CloudSpendStore(private val prefs: SharedPreferences) {
         remoteTaskId: String? = null,
         providerId: String? = null,
         endpoint: String? = null,
+        projectId: String? = null,
     ) = synchronized(lock) {
         if (remoteTaskId != null && _entries.value.any {
                 isSameBilledTask(it, remoteTaskId, providerId, endpoint)
@@ -55,6 +58,7 @@ class CloudSpendStore(private val prefs: SharedPreferences) {
         val entry = CloudSpendEntry(
             workflowName = workflowName,
             providerId = providerId,
+            projectId = projectId,
             points = points,
             remoteTaskId = remoteTaskId,
             endpoint = endpoint,
@@ -77,6 +81,7 @@ class CloudSpendStore(private val prefs: SharedPreferences) {
                 id = o.optString("id"),
                 workflowName = o.optString("workflow"),
                 providerId = o.optString("provider").ifEmpty { null },
+                projectId = o.optString("projectId").ifEmpty { null },
                 points = if (o.has("points") && !o.isNull("points")) o.optInt("points") else null,
                 estimated = o.optBoolean("estimated", true),
                 remoteTaskId = o.optString("remoteTaskId").ifEmpty { null },
@@ -94,6 +99,7 @@ class CloudSpendStore(private val prefs: SharedPreferences) {
                     .put("id", entry.id)
                     .put("workflow", entry.workflowName)
                     .put("provider", entry.providerId ?: "")
+                    .put("projectId", entry.projectId ?: "")
                     .put("points", entry.points ?: JSONObject.NULL)
                     .put("estimated", entry.estimated)
                     .put("remoteTaskId", entry.remoteTaskId ?: "")

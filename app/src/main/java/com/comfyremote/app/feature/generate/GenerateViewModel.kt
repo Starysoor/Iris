@@ -493,7 +493,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         // image/audio prep with no Shot. Never silently bypass the budget via recipes.
         if (projectId != null) {
             val budget = container.projectStore.project(projectId)?.budget
-            val stats = taskCostStats(tasks.value, projectId)
+            val stats = taskCostStats(tasks.value, projectId, container.cloudSpendStore.entries.value)
             when (val decision = BudgetGate.check(stats.costSum, requests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }, budget)) {
                 is BudgetGate.Decision.Blocked -> {
                     _state.update {
@@ -665,7 +665,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         val shotId = request.storyboardShotId
         if (projectId != null && shotId != null) {
             val budget = container.projectStore.project(projectId)?.budget
-            val spent = taskCostStats(tasks.value, projectId)
+            val spent = taskCostStats(tasks.value, projectId, container.cloudSpendStore.entries.value)
             when (val decision = BudgetGate.check(
                 spent.costSum, request.estimatedCloudCost?.toDouble() ?: 0.0, budget,
             )) {

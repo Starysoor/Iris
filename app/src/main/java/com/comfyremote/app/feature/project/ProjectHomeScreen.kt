@@ -90,6 +90,7 @@ fun ProjectHomeScreen(
     val stageWorkflows by viewModel.stageWorkflows.collectAsState()
     val stageInspection by viewModel.stageInspection.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
+    val cloudSpend by viewModel.cloudSpend.collectAsState()
     val message by viewModel.message.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
     val snackbar = remember { SnackbarHostState() }
@@ -241,7 +242,7 @@ fun ProjectHomeScreen(
                 }
             }
             item("tasks-heading") {
-                val stats = taskCostStats(tasks, projectId)
+                val stats = taskCostStats(tasks, projectId, cloudSpend)
                 SectionHeader(stringResource(R.string.proj_tasks)) {
                     if (stats.count > 0) {
                         Text(
@@ -253,13 +254,13 @@ fun ProjectHomeScreen(
                     }
                 }
             }
-            if (project.budget != null && taskCostStats(tasks, projectId).costSum > project.budget!!) {
+            if (project.budget != null && taskCostStats(tasks, projectId, cloudSpend).costSum > project.budget!!) {
                 item("budget-warning") {
                     InfoBanner(
                         text = stringResource(
                             R.string.proj_budget_exceeded,
                             project.budget!!,
-                            taskCostStats(tasks, projectId).costSum,
+                            taskCostStats(tasks, projectId, cloudSpend).costSum,
                         ),
                         tone = BannerTone.Warning,
                     )

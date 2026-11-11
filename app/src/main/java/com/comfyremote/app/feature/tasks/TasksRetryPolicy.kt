@@ -2,6 +2,7 @@ package com.comfyremote.app.feature.tasks
 
 import com.comfyremote.app.data.generation.GenerationRequest
 import com.comfyremote.app.data.generation.GenerationTask
+import com.comfyremote.app.data.cloud.CloudSpendEntry
 import com.comfyremote.app.data.project.BudgetGate
 import com.comfyremote.app.data.project.taskCostStats
 
@@ -19,6 +20,7 @@ internal object TasksRetryPolicy {
     fun evaluate(
         requests: List<GenerationRequest>,
         existingTasks: List<GenerationTask>,
+        ledger: List<CloudSpendEntry> = emptyList(),
         projectInfo: (String) -> ProjectInfo?,
     ): Rejection? {
         val byProject = requests.filter { it.storyboardProjectId != null }
@@ -30,7 +32,7 @@ internal object TasksRetryPolicy {
                 val status = context.shotStatuses[shotId] ?: return Rejection.MissingShot(projectId, shotId)
                 if (status == "running") return Rejection.BusyShot(projectId, shotId)
             }
-            val spent = taskCostStats(existingTasks, projectId).costSum
+            val spent = taskCostStats(existingTasks, projectId, ledger).costSum
             val newCost = projectRequests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }
             when (val result = BudgetGate.check(spent, newCost, context.budget)) {
                 is BudgetGate.Decision.Blocked -> return Rejection.OverBudget(projectId, result)
