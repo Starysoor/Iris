@@ -62,6 +62,7 @@ object ProjectCodec {
         })
         .put("chainFrames", project.chainFrames)
         .put("budget", project.budget ?: JSONObject.NULL)
+        .put("archived", project.archived)
         .put("createdAt", project.createdAt)
         .put("updatedAt", project.updatedAt)
         .put("shots", JSONArray().apply { project.shots.forEach { put(shotToJson(it)) } })
@@ -118,6 +119,7 @@ object ProjectCodec {
             },
             chainFrames = o.optBoolean("chainFrames", true),
             budget = nullableDouble(o, "budget"),
+            archived = o.optBoolean("archived", false),
             shots = shots,
             assets = assets,
             profiles = profiles,

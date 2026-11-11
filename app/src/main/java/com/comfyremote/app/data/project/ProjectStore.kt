@@ -113,6 +113,59 @@ class ProjectStore internal constructor(private val file: File) {
         if (write(listOf(project) + _projects.value)) project else null
     }
 
+    /** Archive is a reversible index flag, not media deletion. */
+    fun setArchived(projectId: String, archived: Boolean): Boolean = update(projectId) {
+        it.copy(archived = archived, updatedAt = System.currentTimeMillis())
+    }
+
+    /**
+     * A copied project is a new production *plan*, never a clone of existing
+     * paid jobs, Takes, finished media outputs or timeline state.
+     */
+    fun duplicateProject(projectId: String): VideoProject? = synchronized(lock) {
+        val source = _projects.value.firstOrNull { it.id == projectId } ?: return@synchronized null
+        val now = System.currentTimeMillis()
+        val assets = source.assets.filterNot { it.id.startsWith("tail:") }
+        val assetIds = assets.mapTo(hashSetOf()) { it.id }
+        val shots = source.shots.map { shot ->
+            ProjectShot(
+                id = UUID.randomUUID().toString(),
+                prompt = shot.prompt,
+                cameraNotes = shot.cameraNotes,
+                plannedDurationSeconds = shot.plannedDurationSeconds,
+                referencePath = if (shot.referenceManual) shot.referencePath else null,
+                referenceManual = shot.referenceManual,
+                referenceRole = shot.referenceRole,
+                referenceAssetIds = shot.referenceAssetIds.filter { it in assetIds },
+                firstFrameAssetId = shot.firstFrameAssetId?.takeIf { it in assetIds },
+                lastFrameAssetId = shot.lastFrameAssetId?.takeIf { it in assetIds },
+                workflowPath = shot.workflowPath,
+                providerId = shot.providerId,
+                workflowId = shot.workflowId,
+                values = shot.values,
+                createdAt = now, updatedAt = now,
+            )
+        }
+        val copy = source.copy(
+            id = UUID.randomUUID().toString(),
+            title = source.title + " (copy)",
+            archived = false,
+            shots = shots,
+            assets = assets,
+            profiles = source.profiles.map { profile ->
+                profile.copy(
+                    id = UUID.randomUUID().toString(),
+                    assetIds = profile.assetIds.filter { it in assetIds },
+                    createdAt = now,
+                )
+            },
+            stageMediaBindings = source.stageMediaBindings.filter { it.assetId in assetIds },
+            timeline = null,
+            createdAt = now, updatedAt = now,
+        )
+        if (write(listOf(copy) + _projects.value)) copy else null
+    }
+
     fun delete(projectId: String) = synchronized(lock) {
         val project = _projects.value.firstOrNull { it.id == projectId } ?: return@synchronized false
         if (project.shots.any { it.status == "running" }) return@synchronized false

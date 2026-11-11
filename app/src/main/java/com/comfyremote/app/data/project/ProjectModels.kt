@@ -171,6 +171,8 @@ data class VideoProject(
     val chainFrames: Boolean = true,
     /** Soft budget cap for cloud spend; stored only in P0, no enforcement yet. */
     val budget: Double? = null,
+    /** Reversible project archive; never removes files or cancels tasks. */
+    val archived: Boolean = false,
     val shots: List<ProjectShot> = emptyList(),
     val assets: List<com.comfyremote.app.data.reference.ProjectAsset> = emptyList(),
     /** Consistency profiles (characters/scenes); optional and always safe to omit. */
