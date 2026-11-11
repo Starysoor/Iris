@@ -289,6 +289,7 @@ class GenerationManager(
                 remoteTaskId = updated.promptId,
                 providerId = updated.request.provider,
                 endpoint = updated.request.serverUrl,
+                projectId = updated.request.storyboardProjectId,
             )
         }
         val persisted = patch(updated.taskId, allowTerminalExit) {

@@ -70,6 +70,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
 
     /** Read-only engine feed for the in-project task view; submission stays on the create page. */
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
+    val cloudSpend = container.cloudSpendStore.entries
     private val _workflows = MutableStateFlow<List<ProjectWorkflowOption>>(emptyList())
     val workflows: StateFlow<List<ProjectWorkflowOption>> = _workflows.asStateFlow()
     private val _stageWorkflows = MutableStateFlow<List<ProjectWorkflowOption>>(emptyList())
