@@ -62,6 +62,7 @@ fun ProjectListScreen(
     val message by viewModel.message.collectAsState()
     val snackbar = remember { SnackbarHostState() }
     var creating by remember { mutableStateOf(false) }
+    var restoringBackup by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -89,6 +90,10 @@ fun ProjectListScreen(
                         Text(stringResource(R.string.proj_storage_recovery),
                             style = MaterialTheme.typography.bodySmall,
                             color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        IrisTonalButton(
+                            text = stringResource(R.string.proj_backup_restore),
+                            onClick = { restoringBackup = true },
+                        )
                     }
                 } else EmptyState(
                     title = stringResource(R.string.proj_empty_title),
@@ -121,6 +126,17 @@ fun ProjectListScreen(
                 }
             }
         }
+    }
+
+
+    if (restoringBackup) {
+        ProjectBackupRestoreDialog(
+            backups = viewModel.availableProjectBackups(),
+            onDismiss = { restoringBackup = false },
+            onRestore = { filename ->
+                if (viewModel.restoreProjectBackup(filename)) restoringBackup = false
+            },
+        )
     }
 
     if (creating && loadError == null) {

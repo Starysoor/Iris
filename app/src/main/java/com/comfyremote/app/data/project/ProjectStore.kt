@@ -37,6 +37,25 @@ class ProjectStore internal constructor(private val file: File) {
         _persistenceError.value = null
     }
 
+    /** Validated, app-private recovery points; unreadable snapshots are hidden. */
+    fun availableBackups(): List<ProjectBackupSnapshot> =
+        synchronized(lock) { ProjectIndexBackups(file).list() }
+
+    /** Explicit user action only. Never silently replace the index on app startup. */
+    fun restoreBackup(filename: String): Boolean = synchronized(lock) {
+        try {
+            ProjectIndexBackups(file).restore(filename)
+            val loaded = load()
+            if (_loadError.value != null) throw IOException("Restored index could not be loaded")
+            _projects.value = loaded
+            _persistenceError.value = null
+            true
+        } catch (error: Exception) {
+            _persistenceError.value = error.message ?: error.javaClass.simpleName
+            false
+        }
+    }
+
     fun load(): List<VideoProject> = synchronized(lock) {
         try {
             val projects = if (!file.exists()) {
@@ -933,16 +952,23 @@ class ProjectStore internal constructor(private val file: File) {
         return try {
             // decode() intentionally tolerates damaged files for read-only UI;
             // writes must not overwrite that damage and erase recoverable work.
-            if (file.isFile) {
-                val raw = file.readText()
-                val rows = ProjectCodec.rawProjectCount(raw)
+            if (file.exists() && !file.isFile) {
+                throw IOException("Existing project index is not a regular file")
+            }
+            val existing = if (file.isFile) file.readText() else null
+            if (existing != null) {
+                val rows = ProjectCodec.rawProjectCount(existing)
                     ?: throw IOException("Existing project index is not valid JSON")
-                if (ProjectCodec.decode(raw).size != rows) {
+                if (ProjectCodec.decode(existing).size != rows) {
                     throw IOException("Existing project index contains unreadable projects")
                 }
+                // Snapshot validated, previously committed bytes before replacement.
+                // Failure to secure the old index prevents the new write.
+                ProjectIndexBackups(file).snapshot(existing)
             }
+            val encoded = ProjectCodec.encode(sorted)
             FileOutputStream(tmp).use { stream ->
-                stream.write(ProjectCodec.encode(sorted).toByteArray(Charsets.UTF_8))
+                stream.write(encoded.toByteArray(Charsets.UTF_8))
                 stream.fd.sync()
             }
             try {
@@ -960,6 +986,15 @@ class ProjectStore internal constructor(private val file: File) {
                 )
             }
             _projects.value = sorted
+            // Guarantee a first recovery point even after the first new-project
+            // creation (where there was no previous index to snapshot).
+            if (existing == null) {
+                runCatching { ProjectIndexBackups(file).snapshot(encoded) }
+                    .onFailure { warning ->
+                        _persistenceError.value = "Project saved; initial backup failed: " +
+                            (warning.message ?: warning.javaClass.simpleName)
+                    }
+            }
             true
         } catch (error: Exception) {
             tmp.delete()

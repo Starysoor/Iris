@@ -162,4 +162,11 @@
     <string name="studio_ai_rationale">Basis: %1$s</string>
     <string name="studio_ai_risk">Check before applying: %1$s</string>
     <string name="studio_ai_select_references">Project reference images for this shot (user-approved)</string>
+    <string name="proj_backup_restore">Restore Studio backup</string>
+    <string name="proj_backup_warning">This restores the entire Studio project index, not just the open project. Newer edits may be lost. Iris preserves the current index before restoring; active remote jobs are not cancelled. Check your tasks before restoring.</string>
+    <string name="proj_backup_empty">No valid local project backups were found. Keep the app data and seek manual recovery; do not uninstall.</string>
+    <string name="proj_backup_count">%1$d projects</string>
+    <string name="proj_backup_confirm">Restore selected backup</string>
+    <string name="proj_backup_restored">Studio backup restored. Check projects and tasks before retrying any paid job.</string>
+    <string name="proj_backup_failed">Recovery failed. Original index is preserved; check storage and backup files.</string>
 </resources>

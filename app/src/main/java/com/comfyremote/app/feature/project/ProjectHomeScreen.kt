@@ -95,6 +95,7 @@ fun ProjectHomeScreen(
     val snackbar = remember { SnackbarHostState() }
     var menuOpen by remember { mutableStateOf(false) }
     var projectSettings by remember { mutableStateOf(false) }
+    var restoringBackup by remember { mutableStateOf(false) }
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -127,6 +128,10 @@ fun ProjectHomeScreen(
                                     menuOpen = false
                                     projectSettings = true
                                 },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.proj_backup_restore)) },
+                                onClick = { menuOpen = false; restoringBackup = true },
                             )
                             DropdownMenuItem(
                                 text = { Text(stringResource(R.string.board_delete_project), color = MaterialTheme.colorScheme.error) },
@@ -275,6 +280,19 @@ fun ProjectHomeScreen(
                 }
             }
         }
+    }
+
+    if (restoringBackup) {
+        ProjectBackupRestoreDialog(
+            backups = viewModel.availableProjectBackups(),
+            onDismiss = { restoringBackup = false },
+            onRestore = { filename ->
+                if (viewModel.restoreProjectBackup(filename)) {
+                    restoringBackup = false
+                    onBack() // The recovered index may no longer contain this project ID.
+                }
+            },
+        )
     }
 
     if (projectSettings && project != null) {

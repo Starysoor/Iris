@@ -57,6 +57,16 @@ data class ProjectWorkflowOption(
 class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     val projects: StateFlow<List<VideoProject>> = container.projectStore.projects
     val projectLoadError: StateFlow<String?> = container.projectStore.loadError
+    fun availableProjectBackups() = container.projectStore.availableBackups()
+
+    fun restoreProjectBackup(filename: String): Boolean {
+        val restored = container.projectStore.restoreBackup(filename)
+        _message.value = AppStrings.get(
+            if (restored) R.string.proj_backup_restored else R.string.proj_backup_failed,
+        )
+        return restored
+    }
+
 
     /** Read-only engine feed for the in-project task view; submission stays on the create page. */
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
