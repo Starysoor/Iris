@@ -117,7 +117,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             try {
                 withContext(Dispatchers.IO) {
                     container.app.contentResolver.openInputStream(uri)?.use { input ->
-                        projectArchive.import(input)
+                        projectArchive.importSnapshot(input)
                     } ?: throw java.io.IOException("Archive could not be opened")
                 }
                 _message.value = AppStrings.get(R.string.proj_package_imported)
