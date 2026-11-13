@@ -15,6 +15,7 @@ import com.comfyremote.app.data.media.ContinuityPaging
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.project.AssetProfile
+import com.comfyremote.app.data.project.ProjectArchive
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
@@ -67,6 +68,66 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val duplicate = container.projectStore.duplicateProject(projectId)
         if (duplicate == null) _message.value = AppStrings.get(R.string.board_err_persist)
         return duplicate
+    }
+
+    private val projectArchive by lazy {
+        ProjectArchive(
+            container.projectStore,
+            File(container.app.filesDir, "storyboards/assets"),
+            listOfNotNull(
+                container.app.filesDir,
+                container.app.cacheDir,
+                container.app.getExternalFilesDir(null),
+                container.app.externalCacheDir,
+            ),
+        )
+    }
+    private var archiveJob: Job? = null
+
+    /** System document picker supplies a user-chosen destination, never app-owned media. */
+    fun exportProjectPackage(projectId: String, uri: Uri) {
+        if (archiveJob?.isActive == true) {
+            _message.value = AppStrings.get(R.string.proj_package_busy)
+            return
+        }
+        archiveJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    container.app.contentResolver.openOutputStream(uri, "wt")?.use { output ->
+                        projectArchive.export(projectId, output)
+                    } ?: throw java.io.IOException("Destination could not be opened")
+                }
+                _message.value = AppStrings.get(R.string.proj_package_exported)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _message.value = AppStrings.get(R.string.proj_package_failed) + ": " +
+                    (error.message ?: error.javaClass.simpleName)
+            }
+        }
+    }
+
+    /** Import is a detached snapshot: no remote paid task is resumed or submitted. */
+    fun importProjectPackage(uri: Uri) {
+        if (archiveJob?.isActive == true) {
+            _message.value = AppStrings.get(R.string.proj_package_busy)
+            return
+        }
+        archiveJob = viewModelScope.launch {
+            try {
+                withContext(Dispatchers.IO) {
+                    container.app.contentResolver.openInputStream(uri)?.use { input ->
+                        projectArchive.importSnapshot(input)
+                    } ?: throw java.io.IOException("Archive could not be opened")
+                }
+                _message.value = AppStrings.get(R.string.proj_package_imported)
+            } catch (cancelled: CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _message.value = AppStrings.get(R.string.proj_package_failed) + ": " +
+                    (error.message ?: error.javaClass.simpleName)
+            }
+        }
     }
 
     fun availableProjectBackups() = container.projectStore.availableBackups()

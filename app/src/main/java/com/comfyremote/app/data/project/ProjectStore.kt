@@ -113,6 +113,17 @@ class ProjectStore internal constructor(private val file: File) {
         if (write(listOf(project) + _projects.value)) project else null
     }
 
+    /**
+     * Import an already verified portable snapshot as a NEW independent project.
+     * Package extraction must finish before invoking this durable index update.
+     */
+    fun insertImported(snapshot: VideoProject): Boolean = synchronized(lock) {
+        if (snapshot.id.isBlank() || _projects.value.any { it.id == snapshot.id }) {
+            return@synchronized false
+        }
+        write(listOf(snapshot) + _projects.value)
+    }
+
     /** Archive is a reversible index flag, not media deletion. */
     fun setArchived(projectId: String, archived: Boolean): Boolean = update(projectId) {
         it.copy(archived = archived, updatedAt = System.currentTimeMillis())

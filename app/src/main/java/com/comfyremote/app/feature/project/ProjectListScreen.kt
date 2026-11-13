@@ -1,5 +1,7 @@
 package com.comfyremote.app.feature.project
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
@@ -67,6 +70,9 @@ fun ProjectListScreen(
     val snackbar = remember { SnackbarHostState() }
     var creating by remember { mutableStateOf(false) }
     var restoringBackup by remember { mutableStateOf(false) }
+    val importLauncher = rememberLauncherForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let(viewModel::importProjectPackage)
+    }
     var filterMode by remember { mutableStateOf(ProjectCatalogFilter.Mode.CURRENT) }
     val filteredProjects = ProjectCatalogFilter.filter(projects, filterMode)
 
@@ -81,6 +87,10 @@ fun ProjectListScreen(
                 title = stringResource(R.string.proj_title),
                 subtitle = stringResource(R.string.proj_subtitle, projects.size),
                 actions = {
+                    TextButton(
+                        onClick = { importLauncher.launch(arrayOf("application/zip", "application/octet-stream")) },
+                        enabled = loadError == null,
+                    ) { Text(stringResource(R.string.proj_package_import)) }
                     IconButton(onClick = { creating = true }, enabled = loadError == null) {
                         Icon(Icons.Outlined.Add, stringResource(R.string.proj_new))
                     }

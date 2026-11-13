@@ -1,5 +1,7 @@
 package com.comfyremote.app.feature.project
 
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.background
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.horizontalScroll
@@ -97,6 +99,11 @@ fun ProjectHomeScreen(
     var menuOpen by remember { mutableStateOf(false) }
     var projectSettings by remember { mutableStateOf(false) }
     var restoringBackup by remember { mutableStateOf(false) }
+    val exportLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.CreateDocument("application/zip"),
+    ) { uri ->
+        uri?.let { viewModel.exportProjectPackage(projectId, it) }
+    }
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -147,6 +154,13 @@ fun ProjectHomeScreen(
                                 onClick = {
                                     menuOpen = false
                                     if (viewModel.duplicateProject(projectId) != null) onBack()
+                                },
+                            )
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.proj_package_export)) },
+                                onClick = {
+                                    menuOpen = false
+                                    exportLauncher.launch("Iris-project-" + projectId.take(8) + ".zip")
                                 },
                             )
                             DropdownMenuItem(
