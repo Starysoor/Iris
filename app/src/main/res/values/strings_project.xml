@@ -106,7 +106,7 @@
     <string name="proj_export_start">Export MP4</string>
     <string name="proj_export_title">Export movie</string>
     <string name="proj_export_running">Exporting… %1$d%%</string>
-    <string name="proj_export_running_note">Keep this screen open; closing the app stops the export (the project and sources are never affected).</string>
+    <string name="proj_export_running_note">Export runs as a foreground service. You may leave this screen; use the notification to monitor or cancel. If Android terminates the process, return and retry.</string>
     <string name="proj_export_done">Export finished. The movie was added to Results.</string>
     <string name="proj_export_done_note">Saving to gallery copies the file to Movies/Iris; sharing opens the system share sheet.</string>
     <string name="proj_export_failed_note">Nothing was written to Results; sources are untouched. You can retry.</string>

@@ -17,6 +17,7 @@ import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.project.AssetProfile
 import com.comfyremote.app.data.project.ProjectArchive
+import com.comfyremote.app.data.project.ProjectExportController
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
@@ -849,140 +850,23 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }.getOrNull()
 
-    // ---- MP4 export ----
-
-    sealed interface ExportState {
-        data object Idle : ExportState
-        data class Running(val progress: Float) : ExportState
-        data class Succeeded(val outputPath: String) : ExportState
-        data class Failed(val message: String) : ExportState
-    }
-
-    private val exporter by lazy { VideoExporter(container.app) }
-    private var exportJob: Job? = null
-    private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
-    val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
+    // ---- MP4 export (service-owned; safe to navigate away) ----
+    val exportState: StateFlow<ProjectExportController.State> =
+        container.projectExportController.state
 
     /**
-     * Exports the video track and its parallel audio overlay to MP4, then
-     * registers the verified result in History.
-     * Export runs in the ViewModel scope: leaving the app kills it (the tmp
-     * file never becomes a finished result); the user retries manually.
+     * User-requested export starts a foreground dataSync service.
+     * The ViewModel never owns the Transformer coroutine.
      */
-    fun startExport(projectId: String) {
-        if (_exportState.value is ExportState.Running || exportJob?.isActive == true) return
-        val project = container.projectStore.project(projectId) ?: return
-        val timeline = project.timeline
-        if (timeline == null || timeline.videoTrack.isEmpty()) {
-            _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
-            return
-        }
-        exportJob = viewModelScope.launch {
-            val available = withContext(Dispatchers.IO) {
-                (timeline.videoTrack + timeline.audioTrack)
-                    .map { it.sourcePath }.filter { File(it).isFile }.toSet()
-            }
-            val missing = (timeline.videoTrack + timeline.audioTrack)
-                .filter { it.sourcePath !in available }
-            if (missing.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_skipped,
-                    missing.joinToString(", ") { it.sourceLabel.ifBlank { it.sourcePath.substringAfterLast('/') } },
-                ))
-                return@launch
-            }
-            // Validate actual media metadata before invoking the encoder. An existing file
-            // may be corrupt or have a clip out-point past its playable duration.
-            val durationByPath = withContext(Dispatchers.IO) {
-                available.associateWith { mediaDurationMs(it) }
-            }
-            val unreadable = durationByPath.filterValues { it == null || it <= 0L }.keys
-            if (unreadable.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_unreadable,
-                    unreadable.joinToString(", ") { it.substringAfterLast('/') },
-                ))
-                return@launch
-            }
-            val plan = ExportPlanBuilder.build(
-                timeline, available, durationByPath.mapValues { it.value!! },
-            )
-            if (plan.invalidTrims.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_invalid_trim, plan.invalidTrims.joinToString(", "),
-                ))
-                return@launch
-            }
-            if (plan.isEmpty) {
-                _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
-                return@launch
-            }
-            _exportState.value = ExportState.Running(0f)
-            val stamp = System.currentTimeMillis()
-            val target = container.historyRepository.newMediaFile("project-export-$stamp", 0, "mp4")
-            val tmp = File(target.parentFile, target.name + ".tmp")
-            runCatching {
-                exporter.export(plan, tmp) { progress ->
-                    _exportState.value = ExportState.Running(progress)
-                }
-            }.onSuccess { result ->
-                when (result) {
-                    is VideoExporter.Result.Cancelled -> {
-                        tmp.delete()
-                        _exportState.value = ExportState.Idle
-                    }
-                    is VideoExporter.Result.Success -> {
-                        // Same-directory rename is atomic; never copy directly into a
-                        // final .mp4 name, because an interrupted copy leaves a partial movie.
-                        if (!tmp.renameTo(target)) {
-                            tmp.delete()
-                            _exportState.value = ExportState.Failed(
-                                AppStrings.get(R.string.proj_export_commit_failed),
-                            )
-                            return@onSuccess
-                        }
-                        val saved = runCatching { container.historyRepository.add(
-                            HistoryItem(
-                                id = "project-export-${project.id}-$stamp",
-                                wfPath = project.workflowPath,
-                                wfName = AppStrings.get(R.string.proj_export_history_name, project.title),
-                                time = System.currentTimeMillis(),
-                                values = emptyMap(),
-                                fields = emptyList(),
-                                randomSeed = false,
-                                images = listOf(target.absolutePath),
-                                summary = project.title.take(50),
-                                prompts = emptyList(),
-                                seeds = "",
-                                serverUrl = "",
-                                tags = listOf("project-export"),
-                            ))
-                        }
-                        saved.onSuccess {
-                            _exportState.value = ExportState.Succeeded(target.absolutePath)
-                        }.onFailure { error ->
-                            target.delete()
-                            _exportState.value = ExportState.Failed(error.message ?: error.javaClass.simpleName)
-                        }
-                    }
-                }
-            }.onFailure { error ->
-                tmp.delete()
-                _exportState.value = if (error is CancellationException) ExportState.Idle
-                    else ExportState.Failed(error.message ?: error.javaClass.simpleName)
-            }
-        }
-    }
+    fun startExport(projectId: String): Boolean =
+        container.projectExportController.requestStart(projectId)
 
     fun cancelExport() {
-        exporter.cancel()
-        // Media3 cancellation may not invoke the completion listener; cancelling
-        // the coroutine resumes the cancellable continuation and unblocks the UI.
-        exportJob?.cancel()
+        container.projectExportController.cancel()
     }
 
     fun dismissExport() {
-        if (_exportState.value !is ExportState.Running) _exportState.value = ExportState.Idle
+        container.projectExportController.dismiss()
     }
 
     fun saveExportToGallery(path: String) {

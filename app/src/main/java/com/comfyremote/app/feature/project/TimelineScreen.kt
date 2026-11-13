@@ -63,6 +63,7 @@ import androidx.media3.ui.PlayerView
 import com.comfyremote.app.R
 import com.comfyremote.app.data.media.AudioWaveformExtractor
 import com.comfyremote.app.data.project.Timeline
+import com.comfyremote.app.data.project.ProjectExportController
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.VideoExporter
 import com.comfyremote.app.data.project.TimelineClip
@@ -112,6 +113,12 @@ fun TimelineScreen(
     var exportSheet by remember { mutableStateOf(false) }
     val exportState by viewModel.exportState.collectAsState()
 
+    // On process recreation an interrupted foreground export is retryable, not silently lost.
+    LaunchedEffect(projectId, exportState) {
+        val failed = exportState as? ProjectExportController.State.Failed
+        if (failed?.projectId == projectId) exportSheet = true
+    }
+
     LaunchedEffect(project?.id) {
         if (project != null && project.timeline == null) viewModel.ensureTimeline(projectId)
     }
@@ -134,8 +141,7 @@ fun TimelineScreen(
                     }
                     IconButton(
                         onClick = {
-                            viewModel.startExport(projectId)
-                            exportSheet = true
+                            if (viewModel.startExport(projectId)) exportSheet = true
                         },
                         enabled = project?.timeline?.videoTrack?.isNotEmpty() == true,
                     ) {
@@ -278,7 +284,7 @@ fun TimelineScreen(
 /** Export progress / result dialog; cancellation and retry are explicit. */
 @Composable
 private fun ExportDialog(
-    state: ProjectViewModel.ExportState,
+    state: ProjectExportController.State,
     onDismiss: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
@@ -291,7 +297,7 @@ private fun ExportDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 when (state) {
-                    is ProjectViewModel.ExportState.Running -> {
+                    is ProjectExportController.State.Running -> {
                         Text(stringResource(R.string.proj_export_running, (state.progress * 100).toInt()))
                         IrisProgressBar(progress = state.progress)
                         Text(
@@ -300,7 +306,7 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    is ProjectViewModel.ExportState.Succeeded -> {
+                    is ProjectExportController.State.Succeeded -> {
                         Text(stringResource(R.string.proj_export_done))
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             TextAction(stringResource(R.string.proj_export_share), onClick = {
@@ -316,7 +322,7 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    is ProjectViewModel.ExportState.Failed -> {
+                    is ProjectExportController.State.Failed -> {
                         Text(state.message, color = MaterialTheme.colorScheme.error)
                         Text(
                             stringResource(R.string.proj_export_failed_note),
@@ -324,16 +330,16 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    ProjectViewModel.ExportState.Idle -> Text(stringResource(R.string.proj_export_start))
+                    ProjectExportController.State.Idle -> Text(stringResource(R.string.proj_export_start))
                 }
             }
         },
         confirmButton = {
             when (state) {
-                is ProjectViewModel.ExportState.Running -> TextButton(onClick = onCancel) {
+                is ProjectExportController.State.Running -> TextButton(onClick = onCancel) {
                     Text(stringResource(R.string.action_cancel))
                 }
-                is ProjectViewModel.ExportState.Failed -> TextButton(onClick = onRetry) {
+                is ProjectExportController.State.Failed -> TextButton(onClick = onRetry) {
                     Text(stringResource(R.string.proj_export_retry))
                 }
                 else -> {}

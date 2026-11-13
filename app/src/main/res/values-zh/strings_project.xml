@@ -106,7 +106,7 @@
     <string name="proj_export_start">导出 MP4</string>
     <string name="proj_export_title">导出成片</string>
     <string name="proj_export_running">导出中… %1$d%%</string>
-    <string name="proj_export_running_note">请保持本页打开；关闭应用会中止导出（项目与素材不受影响）。</string>
+    <string name="proj_export_running_note">导出通过前台服务运行，可离开当前页面，通知栏显示进度并可取消；如系统终止进程，返回后可重试。</string>
     <string name="proj_export_done">导出完成，成片已加入结果页。</string>
     <string name="proj_export_done_note">保存到相册会把文件复制到 Movies/Iris；分享会打开系统分享面板。</string>
     <string name="proj_export_failed_note">结果页没有写入任何内容；素材不受影响，可以重试。</string>
