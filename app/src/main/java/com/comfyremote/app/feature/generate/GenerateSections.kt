@@ -211,6 +211,7 @@ internal fun PromptFieldBlock(
     value: String,
     hasOverride: Boolean,
     workflowName: String,
+    workflowPath: String,
     skills: List<AiSkillDef>,
     aiBusy: String?,
     running: Boolean,
@@ -231,8 +232,11 @@ internal fun PromptFieldBlock(
             },
         )
         if (field.multiline) {
-            val ordered = remember(workflowName, skills) {
-                AiSkillDef.recommendedOrder(skills.filter { it.id != AiSkillDef.DEFAULT_VISION_ID }, workflowName)
+            val ordered = remember(workflowName, workflowPath, skills) {
+                AiSkillDef.recommendedOrder(
+                    skills.filter { it.id != AiSkillDef.DEFAULT_VISION_ID },
+                    "$workflowName $workflowPath",
+                )
             }
             val primary = ordered.take(2)
             val rest = ordered.drop(2)
