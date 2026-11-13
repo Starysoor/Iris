@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="studio_seam_ai_review">AI image comparison</string>
+    <string name="studio_seam_ai_loading">AI is reviewing the two frames…</string>
+    <string name="studio_seam_ai_confirm_title">Send two frames for AI review?</string>
+    <string name="studio_seam_ai_confirm_body">This will send two reduced-resolution seam frames to your configured AI endpoint. Provider charges may apply. Results are advisory and do not alter the project or start video generation.</string>
+    <string name="studio_seam_ai_send">Send for review</string>
+</resources>

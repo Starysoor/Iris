@@ -77,7 +77,9 @@ fun DirectorScreen(
     }
 
     val continuity by viewModel.continuity.collectAsState()
+    val seamVision by viewModel.seamVision.collectAsState()
     val planState by viewModel.planState.collectAsState()
+    var visionConfirmation by remember { mutableStateOf<Pair<String, String>?>(null) }
     var editingPlanIndex by remember { mutableStateOf<Int?>(null) }
     LaunchedEffect(projectId) { viewModel.loadContinuity(projectId) }
     DisposableEffect(viewModel) { onDispose { viewModel.clearContinuity() } }
@@ -250,6 +252,20 @@ fun DirectorScreen(
                                     modifier = Modifier.weight(1f),
                                 )
                             }
+                            TextButton(
+                                onClick = { visionConfirmation = seam.fromShotId to seam.toShotId },
+                                enabled = !seamVision.loading,
+                            ) { Text(stringResource(R.string.studio_seam_ai_review)) }
+                            if (seamVision.projectId == projectId &&
+                                seamVision.fromShotId == seam.fromShotId &&
+                                seamVision.toShotId == seam.toShotId) {
+                                Text(
+                                    if (seamVision.loading) stringResource(R.string.studio_seam_ai_loading)
+                                    else seamVision.feedback.orEmpty(),
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                )
+                            }
                         }
                     }
                 }
@@ -413,6 +429,25 @@ fun DirectorScreen(
                 }
             }
         }
+    }
+
+    visionConfirmation?.let { (from, to) ->
+        AlertDialog(
+            onDismissRequest = { visionConfirmation = null },
+            title = { Text(stringResource(R.string.studio_seam_ai_confirm_title)) },
+            text = { Text(stringResource(R.string.studio_seam_ai_confirm_body)) },
+            confirmButton = {
+                TextButton(onClick = {
+                    visionConfirmation = null
+                    viewModel.reviewSeamVision(projectId, from, to)
+                }) { Text(stringResource(R.string.studio_seam_ai_send)) }
+            },
+            dismissButton = {
+                TextButton(onClick = { visionConfirmation = null }) {
+                    Text(stringResource(R.string.action_cancel))
+                }
+            },
+        )
     }
 
     editingPlanIndex?.let { index ->
