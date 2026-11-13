@@ -8,4 +8,5 @@
     <string name="proj_mgmt_archived">Archived</string>
     <string name="proj_mgmt_all">All</string>
     <string name="proj_mgmt_empty_filter">No projects in this view. Select another filter.</string>
+    <string name="proj_timeline_drag_to_reorder">Long press and drag a clip to reorder; use More for accessible Move Up/Down</string>
 </resources>
