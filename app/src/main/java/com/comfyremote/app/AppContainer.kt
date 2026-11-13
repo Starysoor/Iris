@@ -126,6 +126,10 @@ class AppContainer(val app: Application) {
             storyboardStore.referencedMediaPaths() + projectStore.referencedMediaPaths()
         }
     )
+    /** Lives at application scope; project exports continue after UI navigation. */
+    val projectExportController by lazy {
+        com.comfyremote.app.data.project.ProjectExportController(this)
+    }
     val objectInfoCache = ObjectInfoCache(app.cacheDir)
     val workflowRepository = WorkflowRepository(serverSession, objectInfoCache)
 
