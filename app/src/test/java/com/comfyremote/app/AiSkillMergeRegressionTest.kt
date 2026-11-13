@@ -32,4 +32,25 @@ class AiSkillMergeRegressionTest {
         assertTrue(expand.systemPrompt.contains("存档标注员"))
         assertTrue(tags.systemPrompt.contains("Danbooru"))
     }
+    @Test
+    fun h3SkillAutoInstallsForOldSavedListsWithoutOverwritingUserEdits() {
+        val oldEdited = AiSkillDef(
+            AiSkillDef.DEFAULT_NATURAL_ID, "自然语言（自定义）", "user edit", true,
+        )
+        val old = listOf(
+            oldEdited,
+            AiSkillDef("my_skill", "我的技能", "my custom prompt", false),
+            AiSkillDef(AiSkillDef.DEFAULT_EN_ID, "retired", "old", true),
+        )
+        val upgraded = AiSkillDef.mergeBuiltins(old)
+        assertEquals(1, upgraded.count { it.id == AiSkillDef.DEFAULT_H3_VIDEO_ID })
+        assertEquals("user edit",
+            upgraded.first { it.id == AiSkillDef.DEFAULT_NATURAL_ID }.systemPrompt)
+        assertTrue(upgraded.any { it.id == "my_skill" && it.systemPrompt == "my custom prompt" })
+        assertTrue(upgraded.none { it.id == AiSkillDef.DEFAULT_EN_ID })
+        assertTrue(upgraded.none { it.id == AiSkillDef.DEFAULT_TRANSLATE_ID })
+        val twice = AiSkillDef.mergeBuiltins(upgraded)
+        assertEquals(upgraded.size, twice.size)
+    }
 }
+
