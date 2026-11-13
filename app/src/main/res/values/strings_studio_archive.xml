@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proj_package_import">Import ZIP</string>
+    <string name="proj_package_export">Export project ZIP</string>
+    <string name="proj_package_busy">A project archive operation is already running</string>
+    <string name="proj_package_exported">Project ZIP exported successfully</string>
+    <string name="proj_package_imported">Project snapshot imported; remote tasks were detached</string>
+    <string name="proj_package_failed">Project archive operation failed</string>
+</resources>
