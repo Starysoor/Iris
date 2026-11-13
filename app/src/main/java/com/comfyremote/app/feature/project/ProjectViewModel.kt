@@ -7,6 +7,7 @@ import android.net.Uri
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.comfyremote.app.AppContainer
+import com.comfyremote.app.AiImagePayload
 import com.comfyremote.app.HistoryItem
 import com.comfyremote.app.LabeledText
 import com.comfyremote.app.data.cloud.AutoDlConfig
@@ -43,6 +44,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
 import java.io.File
+import java.io.ByteArrayOutputStream
 
 data class ProjectWorkflowOption(
     val path: String,
@@ -966,6 +968,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     fun loadContinuity(projectId: String, requestedPage: Int = 0) {
         val project = container.projectStore.project(projectId) ?: return
         continuityJob?.cancel()
+        clearSeamVision()
         _continuity.value = ContinuityState(loading = true, pageIndex = requestedPage)
         continuityJob = viewModelScope.launch {
             val result = withContext(Dispatchers.IO) {
@@ -1006,10 +1009,93 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun clearContinuity() {
+        clearSeamVision()
         continuityJob?.cancel()
         continuityJob = null
         // Drop every cached Bitmap reference when leaving the director.
         _continuity.value = ContinuityState()
+    }
+
+    data class SeamVisionState(
+        val projectId: String = "",
+        val fromShotId: String = "",
+        val toShotId: String = "",
+        val loading: Boolean = false,
+        val feedback: String? = null,
+    )
+    private val _seamVision = MutableStateFlow(SeamVisionState())
+    val seamVision: StateFlow<SeamVisionState> = _seamVision.asStateFlow()
+    private val seamVisionGeneration = AtomicLong(0L)
+    private var seamVisionJob: Job? = null
+
+    private fun clearSeamVision() {
+        seamVisionGeneration.incrementAndGet()
+        seamVisionJob?.cancel()
+        seamVisionJob = null
+        _seamVision.value = SeamVisionState()
+    }
+
+    /**
+     * User-initiated visual cross-check. The two already-thumbnail-sized frames
+     * are sent to the explicitly configured AI endpoint, never without a click.
+     * Results are advice only and are not written back to project/shot data.
+     */
+    fun reviewSeamVision(projectId: String, fromShotId: String, toShotId: String) {
+        val project = container.projectStore.project(projectId) ?: return
+        val seam = _continuity.value.seams.firstOrNull {
+            it.fromShotId == fromShotId && it.toShotId == toShotId
+        } ?: return
+        if (!container.aiSettingsStore.load().configured) {
+            _message.value = AppStrings.get(R.string.gen_vm_ai_not_configured)
+            return
+        }
+        clearSeamVision()
+        val token = seamVisionGeneration.incrementAndGet()
+        _seamVision.value = SeamVisionState(projectId, fromShotId, toShotId, loading = true)
+        seamVisionJob = viewModelScope.launch {
+            val result = withContext(Dispatchers.IO) {
+                try {
+                    fun jpeg(bitmap: Bitmap): ByteArray {
+                        val buffer = ByteArrayOutputStream()
+                        if (!bitmap.compress(Bitmap.CompressFormat.JPEG, 72, buffer)) {
+                            throw IllegalStateException("Cannot encode seam thumbnail")
+                        }
+                        return buffer.toByteArray().also { bytes ->
+                            if (bytes.size > 1_000_000) {
+                                throw IllegalArgumentException("Seam thumbnail too large")
+                            }
+                        }
+                    }
+                    Result.success(container.aiRepository.visionChat(
+                        systemPrompt = SeamVisionPrompts.system(),
+                        userText = SeamVisionPrompts.user(
+                            seam.fromLabel, seam.toLabel, seam.diff),
+                        images = listOf(
+                            AiImagePayload(jpeg(seam.frameA), role = ReferenceRole.END_FRAME,
+                                order = 0, label = "前镜头尾帧"),
+                            AiImagePayload(jpeg(seam.frameB), role = ReferenceRole.START_FRAME,
+                                order = 1, label = "后镜头首帧"),
+                        ),
+                    ))
+                } catch (cancelled: CancellationException) {
+                    throw cancelled
+                } catch (error: Exception) {
+                    Result.failure(error)
+                }
+            }
+            if (!isActive || token != seamVisionGeneration.get() ||
+                container.projectStore.project(projectId)?.updatedAt != project.updatedAt ||
+                _continuity.value.seams.none {
+                    it.fromShotId == fromShotId && it.toShotId == toShotId
+                }) return@launch
+            _seamVision.value = SeamVisionState(
+                projectId, fromShotId, toShotId,
+                feedback = result.fold(
+                    onSuccess = SeamVisionPrompts::presentation,
+                    onFailure = { "AI 复核失败：" + (it.message ?: it.javaClass.simpleName) },
+                ),
+            )
+        }
     }
 
     // ---- AI shot plan (P3-3, advice only) ----
