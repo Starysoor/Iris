@@ -8,4 +8,5 @@
     <string name="proj_mgmt_archived">已归档</string>
     <string name="proj_mgmt_all">全部</string>
     <string name="proj_mgmt_empty_filter">此分类下暂时没有项目，可以切换筛选条件。</string>
+    <string name="proj_timeline_drag_to_reorder">长按并拖动片段排序；无障碍操作可通过更多菜单上移/下移</string>
 </resources>
