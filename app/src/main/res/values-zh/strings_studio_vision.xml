@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="studio_seam_ai_review">AI 双帧复核</string>
+    <string name="studio_seam_ai_loading">AI 正在分析两张接缝帧……</string>
+    <string name="studio_seam_ai_confirm_title">发送两张接缝帧给 AI？</string>
+    <string name="studio_seam_ai_confirm_body">将向你已配置的 AI 端点发送两张缩小后的接缝帧，可能产生厂商接口费用。分析仅提供建议，不会修改项目或启动视频生成。</string>
+    <string name="studio_seam_ai_send">确认发送</string>
+</resources>
