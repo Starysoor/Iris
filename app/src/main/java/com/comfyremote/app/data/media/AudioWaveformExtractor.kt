@@ -117,7 +117,7 @@ object AudioWaveformExtractor {
                         }
                     }
                     codec.releaseOutputBuffer(index, false)
-                    if (bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM != 0) break
+                    if ((bufferInfo.flags and MediaCodec.BUFFER_FLAG_END_OF_STREAM) != 0) break
                     if (bufferInfo.presentationTimeUs > endUs) break
                 }
                 idle = if (madeProgress) 0 else idle + 1
