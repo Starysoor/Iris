@@ -140,4 +140,60 @@ class AiClientTest {
         assertEquals("medium", extra.optString("reasoning_effort"))
         assertNull(extra.optJSONObject("thinking"))
     }
+    @Test
+    fun minimaxH3RecommendedByNameAndPathWithoutChangingImageRecommendations() {
+        val skills = AiSkillDef.defaults()
+        val expected = AiSkillDef.DEFAULT_H3_VIDEO_ID
+        listOf(
+            "minimax_h3_lightx2v_v5",
+            "MiniMax-H3",
+            "siliconflow:MiniMax-H3",
+            "普通工作流 autodl-model:minimax-h3-i2v",
+            "无说明 autodl:/api/h3/video",
+        ).forEach { workflow ->
+            assertEquals(workflow, expected, AiSkillDef.recommendedOrder(skills, workflow).first().id)
+        }
+        assertEquals(
+            AiSkillDef.DEFAULT_TAGS_ID,
+            AiSkillDef.recommendedOrder(skills, "Anima-Turbo anime").first().id,
+        )
+        assertEquals(
+            AiSkillDef.DEFAULT_NATURAL_ID,
+            AiSkillDef.recommendedOrder(skills, "Qwen image model").first().id,
+        )
+        val custom = AiSkillDef("custom-h3", "我的技巧", "local", false)
+        val ordered = AiSkillDef.recommendedOrder(skills + custom, "autodl:minimax-h3")
+        assertEquals(expected, ordered.first().id)
+        assertEquals(custom, ordered.last())
+        assertEquals(skills.size + 1, ordered.size)
+    }
+
+    @Test
+    fun h3PromptContractCoversAudioFrameModesDialogueAndSafety() {
+        val skill = AiSkillDef.H3_VIDEO_DEFAULT
+        val prompt = skill.systemPrompt
+        assertEquals("builtin_h3_video", skill.id)
+        assertTrue(skill.builtin)
+        assertTrue(skill.description.contains("huggingface.co/MiniMaxAI/MiniMax-H3/"))
+        assertTrue(skill.scopes.contains(SkillScope.TXT2VIDEO))
+        assertTrue(skill.scopes.contains(SkillScope.IMG2VIDEO))
+        assertTrue(skill.scopes.contains(SkillScope.START_END_VIDEO))
+        assertEquals(SkillExecution.TEXT_MODEL, skill.execution)
+        assertEquals(SkillOutput.REPLACE_FIELD, skill.output)
+        val fields = listOf(
+            "integrated_multimodal_description:",
+            "overall_soundscape:",
+            "non_diegetic_music:",
+        )
+        fields.forEach { assertTrue("Missing H3 core field: $it", prompt.contains(it)) }
+        assertTrue(fields.map { prompt.indexOf(it) }.zipWithNext().all { (a, b) -> a < b })
+        listOf("T2VA", "I2VA", "FL2VA", "L2VA", "[Shot 1]", "Picture 1",
+            "Picture 2", "0.00", "S.SS", "(S1)", "(S2)", "<d>[Chinese]",
+            "N/A", "Do not repeat dialogue", "No soundtrack",
+            "one continuous", "original", "camera movement", "do not fabricate",
+        ).forEach { term ->
+            assertTrue("H3 prompt lost guidance: $term", prompt.contains(term, ignoreCase = true))
+        }
+    }
+
 }
