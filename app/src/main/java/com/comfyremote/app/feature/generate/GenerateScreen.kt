@@ -272,6 +272,7 @@ fun GenerateScreen(
                             value = value,
                             hasOverride = draft.values[field.key] != null,
                             workflowName = draft.workflowName,
+                            workflowPath = draft.workflowPath,
                             skills = state.skills,
                             aiBusy = state.aiBusy,
                             running = running,
