@@ -1,0 +1,11 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="proj_mgmt_archive">Archive project</string>
+    <string name="proj_mgmt_unarchive">Unarchive project</string>
+    <string name="proj_mgmt_duplicate">Duplicate project plan</string>
+    <string name="proj_mgmt_current">Current</string>
+    <string name="proj_mgmt_completed">Completed</string>
+    <string name="proj_mgmt_archived">Archived</string>
+    <string name="proj_mgmt_all">All</string>
+    <string name="proj_mgmt_empty_filter">No projects in this view. Select another filter.</string>
+</resources>
