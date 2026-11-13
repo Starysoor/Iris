@@ -1,5 +1,6 @@
 package com.comfyremote.app.feature.project
 
+import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -40,11 +41,16 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.platform.LocalDensity
+import androidx.compose.ui.semantics.contentDescription
+import androidx.compose.ui.semantics.semantics
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
+import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.viewinterop.AndroidView
 import android.media.MediaMetadataRetriever
 import androidx.media3.common.MediaItem
@@ -335,6 +341,14 @@ private fun ExportDialog(
     )
 }
 
+/** Positive vertical drag moves a clip down, negative moves it up. */
+internal fun timelineDragDirection(distancePx: Float, thresholdPx: Float): Int = when {
+    thresholdPx <= 0f -> 0
+    distancePx >= thresholdPx -> 1
+    distancePx <= -thresholdPx -> -1
+    else -> 0
+}
+
 private fun LazyListScope.trackSection(
     key: String,
     title: String,
@@ -362,12 +376,44 @@ private fun LazyListScope.trackSection(
         items(clips.size, key = { "$key-" + clips[it].id }) { index ->
             val clip = clips[index]
             var menu by remember { mutableStateOf(false) }
-            IrisCard(Modifier.fillMaxWidth()) {
+            val dragThresholdPx = with(LocalDensity.current) { 52.dp.toPx() }
+            val dragDescription = stringResource(R.string.proj_timeline_drag_to_reorder)
+            // A long press on the card starts reordering. Each threshold crossing is
+            // a single adjacent swap, so store ordering remains the source of truth.
+            IrisCard(
+                Modifier.fillMaxWidth().pointerInput(clip.id, dragThresholdPx) {
+                    var accumulatedDrag = 0f
+                    detectDragGesturesAfterLongPress(
+                        onDragStart = { accumulatedDrag = 0f },
+                        onDragEnd = { accumulatedDrag = 0f },
+                        onDragCancel = { accumulatedDrag = 0f },
+                        onDrag = { change, dragAmount ->
+                            change.consume()
+                            accumulatedDrag += dragAmount.y
+                            val direction = timelineDragDirection(accumulatedDrag, dragThresholdPx)
+                            if (direction != 0) {
+                                val currentIndex = clips.indexOfFirst { it.id == clip.id }
+                                val targetIndex = currentIndex + direction
+                                if (currentIndex >= 0 && targetIndex in clips.indices) {
+                                    onMove(clip.id, direction)
+                                }
+                                accumulatedDrag = 0f
+                            }
+                        },
+                    )
+                },
+            ) {
                 Row(
                     Modifier.fillMaxWidth(),
                     verticalAlignment = Alignment.CenterVertically,
                     horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
                 ) {
+                    Text(
+                        "≡",
+                        modifier = Modifier.semantics { contentDescription = dragDescription },
+                        style = MaterialTheme.typography.titleMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    )
                     MediaThumbnail(clip.sourcePath, 56.dp, Modifier.clip(MaterialTheme.shapes.medium))
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(2.dp)) {
                         Text(
