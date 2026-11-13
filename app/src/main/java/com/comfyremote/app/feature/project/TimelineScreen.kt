@@ -38,6 +38,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -50,7 +51,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
-import androidx.compose.ui.input.pointer.consume
 import androidx.compose.ui.viewinterop.AndroidView
 import android.media.MediaMetadataRetriever
 import androidx.media3.common.MediaItem
@@ -377,6 +377,8 @@ private fun LazyListScope.trackSection(
             val clip = clips[index]
             var menu by remember { mutableStateOf(false) }
             val dragThresholdPx = with(LocalDensity.current) { 52.dp.toPx() }
+            val currentClips by rememberUpdatedState(clips)
+            val currentOnMove by rememberUpdatedState(onMove)
             val dragDescription = stringResource(R.string.proj_timeline_drag_to_reorder)
             // A long press on the card starts reordering. Each threshold crossing is
             // a single adjacent swap, so store ordering remains the source of truth.
@@ -392,10 +394,10 @@ private fun LazyListScope.trackSection(
                             accumulatedDrag += dragAmount.y
                             val direction = timelineDragDirection(accumulatedDrag, dragThresholdPx)
                             if (direction != 0) {
-                                val currentIndex = clips.indexOfFirst { it.id == clip.id }
+                                val currentIndex = currentClips.indexOfFirst { it.id == clip.id }
                                 val targetIndex = currentIndex + direction
-                                if (currentIndex >= 0 && targetIndex in clips.indices) {
-                                    onMove(clip.id, direction)
+                                if (currentIndex >= 0 && targetIndex in currentClips.indices) {
+                                    currentOnMove(clip.id, direction)
                                 }
                                 accumulatedDrag = 0f
                             }
