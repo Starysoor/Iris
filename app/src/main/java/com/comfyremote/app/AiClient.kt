@@ -70,6 +70,7 @@ data class AiSkillDef(
         const val DEFAULT_NSFW_EXPAND_ID = "builtin_nsfw_expand"
         const val DEFAULT_NSFW_TAGS_ID = "builtin_nsfw_tags"
         const val DEFAULT_VISION_ID = "builtin_vision"
+        const val DEFAULT_H3_VIDEO_ID = "builtin_h3_video"
 
         val NATURAL_DEFAULT = AiSkillDef(
             DEFAULT_NATURAL_ID, "AI 扩写",
@@ -127,6 +128,96 @@ data class AiSkillDef(
             true,
         )
 
+
+        /**
+         * H3 audiovisual prompt writer. Single-round text skill: no new provider
+         * endpoint, no implicit image inspection, and no paid video submission.
+         * Source: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md
+         */
+        val H3_VIDEO_DEFAULT = AiSkillDef(
+            DEFAULT_H3_VIDEO_ID, "H3 视频扩写",
+            """
+            You are a MiniMax H3 audiovisual video prompt editor. Rewrite the user's idea
+            into one concrete, temporally coherent H3 generation prompt. Follow the
+            MiniMax-H3 Video Prompt Writing Guide for T2VA, I2VA, FL2VA and L2VA.
+            Never turn this into a static-image prompt or a Danbooru tag list.
+
+            OUTPUT CONTRACT — output only these three named fields, in this order,
+            preceded ONLY by a keyframe alignment instruction when required.
+            integrated_multimodal_description: [Shot 1] ...
+            overall_soundscape: ...
+            non_diegetic_music: ...
+
+            integrated_multimodal_description:
+            Write in natural English, following playback order from opening image
+            through each observable action and camera movement to the final state.
+            Establish visual style, composition, subject identity, physical motion,
+            environment, lighting, framing and synchronized diegetic sounds. For a
+            camera move, state the motion (push, pan, truck, tilt, arc, tracking or
+            static), adding amplitude and pace when meaningful. A small change in
+            framing should be camera movement, not a fabricated cut. Add [Shot 2]
+            and increasing cut timestamps only if the requested video genuinely
+            needs a new shot. Keep each shot temporally and spatially consistent.
+            Speaker IDs (S1), (S2) remain stable across shots; use dialogue as
+            <d>[Chinese]原文</d> or the user's actual language, preserving their
+            exact words and punctuation. Never invent dialogue. For off-screen
+            voiceover, say explicitly that the on-screen speaker's lips stay closed.
+            Preserve any visible sign, subtitle or written text in its original
+            language, spelling and punctuation.
+
+            overall_soundscape:
+            Write 1-4 English sentences covering ONLY audible environmental sounds,
+            concrete actions (footsteps, cloth, splashes, impacts), and nonverbal
+            sounds in the same temporal sequence. Do not repeat dialogue or lyrics
+            here. If the user explicitly requests complete silence, write N/A.
+
+            non_diegetic_music:
+            Use N/A if the user requests no music, sound effects only, or supplies
+            no background-music requirement. Otherwise write 1-3 English sentences
+            specifying instrumentation, tempo, rhythm and volume progression.
+            Do not confuse diegetic music heard in the scene with background score.
+            "No soundtrack" does NOT mean remove requested sound effects.
+
+            ADAPT TO THE USER'S ACTUAL INPUT MODE:
+            - T2VA (text only): start directly with the three fields, no image
+              alignment line, and describe the complete audiovisual scene.
+            - I2VA (first frame given): first align Picture 1 to 0.00 seconds of
+              Shot 1; then start from its known composition and develop forward.
+            - FL2VA (both first and last frames given / 首尾帧 / first+last frames /
+              起始帧和结束帧): place a FIRST LINE starting with
+              "How the reference pictures align with the target video" and
+              explicitly align Picture 1 to 0.00 seconds, Picture 2 to the
+              end of the target video at S.SS seconds, followed by one blank line.
+              Use the duration stated by the user in two-decimal seconds. If no
+              duration is available, use S.SS as a clearly unfilled placeholder;
+              do not fabricate a runtime. Prefer one continuous [Shot 1] unless
+              the user explicitly requests cuts. Describe the intermediate
+              changes of movement, poses, object states and camera composition,
+              smoothly reaching the final frame. Do not restate both still images.
+            - L2VA (last frame only): put a first-line instruction aligning the
+              supplied last picture to the video's last time point, then describe
+              how a plausible preceding scene converges to that end frame.
+            Never assume a first or last image has actually been observed: this
+            is a text rewriting request. Do not fabricate reference-image details.
+
+            Make every claim visible or audible, not abstract or impossible to
+            observe. Respect explicitly requested framing, shot structure,
+            camera speed, dialogue, sound effects, and silence. Do not add an
+            unsolicited soundtrack, new scene, timestamp or speaker. Produce
+            the final three-field H3 prompt only, no heading, apology, analysis,
+            code fence or explanatory text.
+            """.trimIndent(),
+            true,
+            description = "Official MiniMax H3 T2VA/I2VA/FL2VA/L2VA audiovisual prompt format; guide may change: https://huggingface.co/MiniMaxAI/MiniMax-H3/blob/main/docs/VIDEO_PROMPT_WRITING_GUIDE_base_en.md",
+            scopes = setOf(
+                SkillScope.TXT2VIDEO, SkillScope.IMG2VIDEO,
+                SkillScope.START_END_VIDEO, SkillScope.MULTI_REFERENCE,
+            ),
+            inputSources = setOf(SkillInputSource.CURRENT_TEXT),
+            execution = SkillExecution.TEXT_MODEL,
+            output = SkillOutput.REPLACE_FIELD,
+        )
+
         val VISION_REWRITE_DEFAULT = AiSkillDef(
             DEFAULT_VISION_ID, "AI 看图改写",
             "你是一位能直接观察参考图的视觉提示词导演。参考图是你的隐藏上下文，不是让你写图片说明。\n" +
@@ -170,7 +261,7 @@ data class AiSkillDef(
 
         fun defaults(): List<AiSkillDef> = listOf(
             NATURAL_DEFAULT, TAGS_DEFAULT, NEGATIVE_DEFAULT,
-            VISION_REWRITE_DEFAULT, NSFW_EXPAND_DEFAULT, NSFW_TAGS_DEFAULT,
+            H3_VIDEO_DEFAULT, VISION_REWRITE_DEFAULT, NSFW_EXPAND_DEFAULT, NSFW_TAGS_DEFAULT,
         )
 
         /** Ensures every built-in skill exists and drops retired built-ins. */
@@ -184,10 +275,19 @@ data class AiSkillDef(
 
         private val TAGGED_WORKFLOWS = listOf("SDXL", "Anima", "Illustrious", "Pony")
 
-        /** Anime-checkpoint workflows want the tag skill first, natural language otherwise. */
+        /**
+         * Prefer audiovisual H3 rewriting for matching names OR paths.
+         * Keep legacy anime tag and natural-language recommendations unchanged.
+         * Stable sorting preserves users' existing secondary skill order.
+         */
         fun recommendedOrder(skills: List<AiSkillDef>, wfName: String): List<AiSkillDef> {
-            val first = if (TAGGED_WORKFLOWS.any { wfName.contains(it, ignoreCase = true) })
-                DEFAULT_TAGS_ID else DEFAULT_NATURAL_ID
+            val first = when {
+                wfName.contains("minimax", ignoreCase = true) ||
+                    wfName.contains("h3", ignoreCase = true) -> DEFAULT_H3_VIDEO_ID
+                TAGGED_WORKFLOWS.any { wfName.contains(it, ignoreCase = true) } ->
+                    DEFAULT_TAGS_ID
+                else -> DEFAULT_NATURAL_ID
+            }
             return skills.sortedBy { if (it.id == first) 0 else 1 }
         }
     }
