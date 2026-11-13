@@ -80,7 +80,7 @@ class ProjectArchive(
     }
 
     /** Reject unknown ZIP entries, duplicate paths, damaged data and ZIP bombs. */
-    fun import(input: InputStream): VideoProject {
+    fun importSnapshot(input: InputStream): VideoProject {
         if (!mediaDir.isDirectory && !mediaDir.mkdirs()) throw IOException("Cannot create media directory")
         val staging = File(mediaDir, ".import-" + UUID.randomUUID())
         if (!staging.mkdir()) throw IOException("Cannot create staging directory")
