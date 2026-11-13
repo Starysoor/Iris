@@ -1,6 +1,7 @@
 package com.comfyremote.app.feature.project
 
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -38,9 +39,11 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
+import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalDensity
@@ -58,6 +61,7 @@ import androidx.media3.common.util.UnstableApi
 import androidx.media3.exoplayer.ExoPlayer
 import androidx.media3.ui.PlayerView
 import com.comfyremote.app.R
+import com.comfyremote.app.data.media.AudioWaveformExtractor
 import com.comfyremote.app.data.project.Timeline
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.VideoExporter
@@ -435,6 +439,9 @@ private fun LazyListScope.trackSection(
                                 StatusChip("${(clip.volume * 100).toInt()}%", tone = ChipTone.Neutral)
                             }
                         }
+                        if (key == "audio") {
+                            AudioWaveformBars(clip)
+                        }
                     }
                     Box {
                         IconButton(onClick = { menu = true }) {
@@ -462,6 +469,29 @@ private fun LazyListScope.trackSection(
                     }
                 }
             }
+        }
+    }
+}
+
+/** A real PCM amplitude preview; never substitute fabricated bars for decoding errors. */
+@Composable
+private fun AudioWaveformBars(clip: TimelineClip) {
+    val amplitudes by produceState<List<Float>?>(
+        null, clip.sourcePath, clip.sourceInMs, clip.sourceOutMs,
+    ) {
+        value = AudioWaveformExtractor.sample(clip.sourcePath, clip.sourceInMs, clip.sourceOutMs)
+    }
+    val peaks = amplitudes ?: return
+    val maxAmplitude = peaks.maxOrNull()?.takeIf { it > 0f } ?: return
+    val tone = if (clip.muted) MaterialTheme.colorScheme.onSurfaceVariant else MaterialTheme.colorScheme.primary
+    Canvas(Modifier.fillMaxWidth().height(24.dp)) {
+        val spacing = size.width / peaks.size
+        val center = size.height / 2f
+        peaks.forEachIndexed { index, peak ->
+            val halfHeight = (peak / maxAmplitude).coerceIn(0.05f, 1f) * center
+            val x = (index + 0.5f) * spacing
+            drawLine(tone, Offset(x, center - halfHeight), Offset(x, center + halfHeight),
+                strokeWidth = (spacing * 0.45f).coerceAtLeast(1f))
         }
     }
 }
