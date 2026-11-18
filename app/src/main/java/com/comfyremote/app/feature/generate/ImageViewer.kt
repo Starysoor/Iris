@@ -12,10 +12,12 @@ import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.gestures.detectTransformGestures
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.PlayArrow
@@ -27,6 +29,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
+import androidx.compose.material3.LinearProgressIndicator
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
@@ -53,6 +56,8 @@ import androidx.compose.ui.window.DialogProperties
 import androidx.core.content.FileProvider
 import com.comfyremote.app.R
 import com.comfyremote.app.data.media.MediaTypeResolver
+import com.comfyremote.app.data.media.GallerySaveFeedback
+import com.comfyremote.app.data.media.GallerySavePhase
 import com.comfyremote.app.data.media.decodeSampled
 import com.comfyremote.app.ui.AppStrings
 import kotlinx.coroutines.Dispatchers
@@ -74,8 +79,8 @@ private val ViewerBackdrop = Color.Black
 private val ViewerForeground = Color.White
 
 @Composable
-private fun ViewerButton(icon: ImageVector, description: String, onClick: () -> Unit) {
-    IconButton(onClick = onClick) {
+private fun ViewerButton(icon: ImageVector, description: String, onClick: () -> Unit, enabled: Boolean = true) {
+    IconButton(onClick = onClick, enabled = enabled) {
         Surface(shape = CircleShape, color = ViewerBackdrop.copy(alpha = 0.45f)) {
             Icon(icon, description, tint = ViewerForeground, modifier = Modifier.padding(8.dp).size(20.dp))
         }
@@ -88,11 +93,48 @@ private fun ViewerActions(
     onSave: (() -> Unit)?,
     onShare: (() -> Unit)?,
     modifier: Modifier = Modifier,
+    saving: Boolean = false,
 ) {
     Row(modifier.padding(8.dp), horizontalArrangement = Arrangement.spacedBy(4.dp)) {
         onShare?.let { ViewerButton(Icons.Outlined.Share, stringResource(R.string.action_share), it) }
-        onSave?.let { ViewerButton(Icons.Outlined.SaveAlt, stringResource(R.string.action_save), it) }
+        onSave?.let { ViewerButton(Icons.Outlined.SaveAlt, stringResource(R.string.action_save), it, enabled = !saving) }
         ViewerButton(Icons.Outlined.Close, stringResource(R.string.action_close), onClose)
+    }
+}
+
+/** Render inside the Dialog window; screen-level Snackbars sit underneath it. */
+@Composable
+private fun ViewerSaveFeedback(feedback: GallerySaveFeedback?, modifier: Modifier = Modifier) {
+    if (feedback == null) return
+    Surface(
+        modifier = modifier.padding(horizontal = 20.dp),
+        shape = MaterialTheme.shapes.medium,
+        color = ViewerBackdrop.copy(alpha = 0.84f),
+    ) {
+        Column(
+            Modifier.padding(horizontal = 16.dp, vertical = 12.dp),
+            horizontalAlignment = Alignment.CenterHorizontally,
+            verticalArrangement = Arrangement.spacedBy(6.dp),
+        ) {
+            val label = when (feedback.phase) {
+                GallerySavePhase.SAVING -> stringResource(
+                    R.string.gallery_saving_progress,
+                    ((feedback.progress ?: 0f) * 100f).toInt().coerceIn(0, 100),
+                )
+                GallerySavePhase.SUCCEEDED -> stringResource(R.string.gallery_saved)
+                GallerySavePhase.FAILED -> stringResource(
+                    R.string.gallery_save_failed,
+                    feedback.error.orEmpty().take(160),
+                )
+            }
+            Text(label, color = ViewerForeground, style = MaterialTheme.typography.bodyMedium)
+            if (feedback.isSaving) {
+                LinearProgressIndicator(
+                    progress = { (feedback.progress ?: 0f).coerceIn(0f, 1f) },
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            }
+        }
     }
 }
 
@@ -102,6 +144,7 @@ fun ImageViewerDialog(
     onClose: () -> Unit,
     onSave: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
+    saveFeedback: GallerySaveFeedback? = null,
 ) {
     Dialog(onDismissRequest = onClose, properties = DialogProperties(usePlatformDefaultWidth = false)) {
         Box(Modifier.fillMaxSize().background(ViewerBackdrop)) {
@@ -123,7 +166,8 @@ fun ImageViewerDialog(
                     },
                 contentScale = ContentScale.Fit,
             )
-            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd))
+            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd), saving = saveFeedback?.isSaving == true)
+            ViewerSaveFeedback(saveFeedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
             Text(
                 stringResource(R.string.gen_viewer_hint),
                 color = ViewerForeground.copy(alpha = 0.6f),
@@ -213,13 +257,16 @@ fun MediaViewerDialog(
     onClose: () -> Unit,
     onSave: (() -> Unit)? = null,
     onShare: (() -> Unit)? = null,
+    saveFeedback: GallerySaveFeedback? = null,
 ) {
+    // Never show a previous save's status for a different opened result.
+    val feedback = saveFeedback?.takeIf { it.path == path }
     if (!isNonImageMedia(path)) {
         val bitmap by produceState<Bitmap?>(null, path) {
             value = withContext(Dispatchers.IO) { decodeSampled(path, 1800) }
         }
         bitmap?.let {
-            ImageViewerDialog(bitmap = it, onClose = onClose, onSave = onSave, onShare = onShare)
+            ImageViewerDialog(bitmap = it, onClose = onClose, onSave = onSave, onShare = onShare, saveFeedback = feedback)
         }
         return
     }
@@ -240,7 +287,8 @@ fun MediaViewerDialog(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd))
+            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd), saving = feedback?.isSaving == true)
+            ViewerSaveFeedback(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 52.dp))
         }
     }
 }

@@ -20,10 +20,12 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Add
 import androidx.compose.material.icons.outlined.ArrowDropDown
 import androidx.compose.material.icons.outlined.Edit
+import androidx.compose.material.icons.outlined.HelpOutline
 import androidx.compose.material.icons.outlined.NetworkCheck
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
@@ -78,6 +80,7 @@ fun AiSettingsScreen(
     var advanced by rememberSaveable { mutableStateOf(false) }
     var editingSkill by remember { mutableStateOf<AiSkillDef?>(null) }
     var addingSkill by remember { mutableStateOf(false) }
+    var showSkillHelp by remember { mutableStateOf(false) }
     val okPrefix = stringResource(R.string.ai_test_ok, "")
 
     IrisScaffold(
@@ -207,6 +210,11 @@ fun AiSettingsScreen(
 
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 SectionHeader(stringResource(R.string.ai_skills_title, state.skills.size)) {
+                    IconButton(onClick = { showSkillHelp = true }) {
+                        Icon(Icons.Outlined.HelpOutline,
+                            contentDescription = stringResource(R.string.ai_help_open),
+                            tint = MaterialTheme.colorScheme.primary)
+                    }
                     TextButton(onClick = { addingSkill = true }) {
                         Icon(Icons.Outlined.Add, null, tint = MaterialTheme.colorScheme.primary, modifier = Modifier.size(18.dp))
                         Text(
@@ -256,6 +264,8 @@ fun AiSettingsScreen(
             }
         }
     }
+
+    if (showSkillHelp) SkillUsageHelpDialog { showSkillHelp = false }
 
     editingSkill?.let { skill ->
         SkillEditDialog(

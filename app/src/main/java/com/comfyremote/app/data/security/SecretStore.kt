@@ -109,6 +109,6 @@ class SecretStore(private val prefs: SharedPreferences) : SecretVault {
         private const val ALIAS = "iris_secret_key_v1"
         private const val TRANSFORMATION = "AES/GCM/NoPadding"
         private const val IV_SIZE = 12
-        private val LEGACY_KEYS = listOf("aiKey", "autoDlToken", "ghToken")
+        private val LEGACY_KEYS = listOf("aiKey", "autoDlToken")
     }
 }

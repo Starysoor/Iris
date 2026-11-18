@@ -1,0 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="gallery_saving_progress">正在保存到相册… %1$d%%</string>
+</resources>

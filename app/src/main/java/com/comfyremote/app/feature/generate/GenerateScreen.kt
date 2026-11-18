@@ -69,6 +69,7 @@ fun GenerateScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val linkedShot by viewModel.linkedShot.collectAsState()
+    val saveFeedback by viewModel.saveFeedback.collectAsState()
     val projects by viewModel.projects.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val appSettings = LocalAppSettings.current
@@ -201,7 +202,7 @@ fun GenerateScreen(
                     contentPadding = PaddingValues(horizontal = Spacing.gutter, vertical = Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(if (appSettings.compactUi) Spacing.sm else Spacing.md),
                 ) {
-                    if (linkedShot == null && projects.isNotEmpty()) {
+                    if (appSettings.showProjectLinkPrompt && linkedShot == null && projects.isNotEmpty()) {
                         item("studio-optional-link") {
                             InfoBanner(
                                 title = stringResource(R.string.studio_link_optional_title),
@@ -465,6 +466,7 @@ fun GenerateScreen(
                 onClose = { viewingResult = null },
                 onSave = { viewModel.saveMedia(result.localPath) },
                 onShare = { shareMedia(context, result.localPath) },
+                saveFeedback = saveFeedback,
             )
         }
     }

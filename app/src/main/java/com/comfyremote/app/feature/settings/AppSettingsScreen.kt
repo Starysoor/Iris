@@ -81,6 +81,14 @@ fun AppSettingsScreen(
                     onChange = { value -> viewModel.update { it.copy(recentPresetsCount = value.coerceIn(0..4)) } },
                 )
                 SwitchRow(
+                    title = stringResource(R.string.settings_project_link_prompt),
+                    detail = stringResource(R.string.settings_project_link_prompt_detail),
+                    checked = settings.showProjectLinkPrompt,
+                    onCheckedChange = { enabled ->
+                        viewModel.update { it.copy(showProjectLinkPrompt = enabled) }
+                    },
+                )
+                SwitchRow(
                     title = stringResource(R.string.settings_server_workspace),
                     detail = stringResource(R.string.settings_server_workspace_detail),
                     checked = settings.showServerWorkspace,

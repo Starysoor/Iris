@@ -83,7 +83,7 @@ import com.comfyremote.app.feature.project.ShotsWorkspaceScreen
 import com.comfyremote.app.feature.tasks.TaskDetailScreen
 import com.comfyremote.app.feature.tasks.TasksScreen
 import com.comfyremote.app.feature.tasks.TasksViewModel
-import com.comfyremote.app.feature.update.UpdateScreen
+import com.comfyremote.app.feature.update.VersionScreen
 import com.comfyremote.app.feature.update.UpdateViewModel
 import com.comfyremote.app.feature.workflows.WorkflowsScreen
 import com.comfyremote.app.feature.workflows.WorkflowsViewModel
@@ -342,7 +342,7 @@ private fun AppNavHost(
                     onServers = { navController.navigate(Routes.SERVERS) },
                     onAi = { navController.navigate(Routes.AI_SETTINGS) },
                     onCloud = { navController.navigate(Routes.CLOUD_SERVICES) },
-                    onUpdate = { navController.navigate(Routes.UPDATE) },
+                    onVersion = { navController.navigate(Routes.VERSION) },
                     cloudProviders = container.cloudProviders.info(),
                     onOpenProvider = { providerId ->
                         navController.navigate(Routes.cloudProvider(providerId))
@@ -401,9 +401,9 @@ private fun AppNavHost(
                 val vm: AiSettingsViewModel = viewModel(factory = factory)
                 AiSettingsScreen(vm) { navController.popBackStack() }
             }
-            composable(Routes.UPDATE) {
+            composable(Routes.VERSION) {
                 val vm: UpdateViewModel = viewModel(factory = factory)
-                UpdateScreen(vm) { navController.popBackStack() }
+                VersionScreen(vm) { navController.popBackStack() }
             }
         }
         }

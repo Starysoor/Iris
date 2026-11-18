@@ -107,6 +107,7 @@
     <string name="cloud_template_inferred">Config inferred; review and edit before saving</string>
     <string name="settings_update">Software update</string>
     <string name="settings_update_detail">Check and install GitHub Releases</string>
+    <string name="settings_version_detail">Installed version, source code, feedback and updates</string>
     <string name="settings_version">Version</string>
     <string name="settings_version_value">Iris · v%1$s</string>
 

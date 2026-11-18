@@ -11,18 +11,17 @@ class UpdateRepository(private val app: Application) {
         app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "0"
     }.getOrDefault("0")
 
-    suspend fun latest(token: String?): GhRelease = Updater.latest(token)
+    suspend fun latest(): GhRelease = Updater.latest()
 
     fun isNewer(release: GhRelease): Boolean =
         Updater.compareVersions(release.tag, currentVersion()) > 0
 
     suspend fun download(
-        token: String?,
         release: GhRelease,
         onProgress: (Float) -> Unit,
     ): File {
         val dest = File(app.cacheDir, "update/comfyremote_${release.tag}.apk")
-        Updater.download(token, release, dest, onProgress)
+        Updater.download(release, dest, onProgress)
         return dest
     }
 

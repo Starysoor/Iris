@@ -15,7 +15,8 @@ object Routes {
     const val CLOUD_PROVIDER_PATTERN = "cloud-provider/{providerId}"
     const val SERVERS = "servers"
     const val AI_SETTINGS = "ai-settings"
-    const val UPDATE = "update"
+    // Reuses the old update route to preserve existing navigation state.
+    const val VERSION = "update"
 
     const val GENERATE_PATTERN = "generate?path={path}&name={name}"
     const val TASK_PATTERN = "task/{taskId}"

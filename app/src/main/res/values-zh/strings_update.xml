@@ -3,8 +3,6 @@
     <string name="update_title">软件更新</string>
     <string name="update_current">当前版本</string>
     <string name="update_version">v%1$s</string>
-    <string name="update_token">GitHub Token（可选）</string>
-    <string name="update_token_hint">公开仓库无需填写</string>
     <string name="update_check">检查更新</string>
     <string name="update_checking">检查中…</string>
     <string name="update_new_version">新版本</string>
@@ -19,4 +17,13 @@
     <string name="update_up_to_date">已是最新版本</string>
     <string name="update_check_failed">检查失败：%1$s</string>
     <string name="update_download_failed">下载失败：%1$s</string>
+
+    <string name="version_page_title">版本与更新</string>
+    <string name="version_page_description">Iris 是开源 Android 图像与视频创作工作台，支持本地及云端工作流、提示词扩写、作品镜头与 Take 管理、结果预览与相册保存、视频时间线编辑。本页展示当前安装版本，并从公开 GitHub Releases 检查更新。</string>
+    <string name="version_page_feedback_heading">反馈与开源仓库</string>
+    <string name="version_page_feedback_detail">可以在 GitHub 查看源代码、提出功能建议或报告问题。反馈故障时建议注明当前版本和复现步骤。</string>
+    <string name="version_page_repository">查看 GitHub 仓库</string>
+    <string name="version_page_report_issue">提交问题或建议</string>
+    <string name="version_page_release_history">查看版本发布记录</string>
+    <string name="version_page_update_heading">检查软件更新</string>
 </resources>

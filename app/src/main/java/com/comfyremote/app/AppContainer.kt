@@ -57,6 +57,12 @@ class AppContainer(val app: Application) {
     val appSettingsStore = AppSettingsStore(prefs)
     private val secretStore = SecretStore(prefs)
 
+    init {
+        // Public releases do not need credentials. Remove any old plaintext or
+        // encrypted GitHub-only token without touching AI/cloud provider keys.
+        secretStore.put("ghToken", null)
+    }
+
     val autoDlSettingsStore = AutoDlSettingsStore(secretStore)
     val autoDlRepository = AutoDlRepository(autoDlSettingsStore)
     val cloudProviderSettingsStore = CloudProviderSettingsStore(prefs, secretStore)
@@ -113,7 +119,7 @@ class AppContainer(val app: Application) {
     )
     val serverHealthRepository = ServerHealthRepository()
 
-    val updateSettingsStore = UpdateSettingsStore(prefs, secretStore)
+    val updateSettingsStore = UpdateSettingsStore(prefs)
     val updateRepository = UpdateRepository(app)
 
     val promptPresetRepository = PromptPresetRepository(prefs)

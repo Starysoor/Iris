@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_project_link_prompt">显示关联项目提示</string>
+    <string name="settings_project_link_prompt_detail">控制工作流顶部的“关联项目”建议提示。已经关联的项目仍会显示，避免误操作。</string>
+</resources>

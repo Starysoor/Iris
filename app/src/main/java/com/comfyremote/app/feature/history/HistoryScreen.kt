@@ -70,6 +70,7 @@ fun HistoryScreen(
     val query by viewModel.query.collectAsState()
     val favoritesOnly by viewModel.favoritesOnly.collectAsState()
     val message by viewModel.message.collectAsState()
+    val saveFeedback by viewModel.saveFeedback.collectAsState()
     val storyboardProjects by viewModel.storyboardProjects.collectAsState()
     val linkedResult by viewModel.linkedResult.collectAsState()
     val snackbar = remember { SnackbarHostState() }
@@ -197,6 +198,7 @@ fun HistoryScreen(
             serverLabel = viewModel.serverLabel(item.serverUrl),
             onClose = { viewingId = null },
             onSave = viewModel::saveMedia,
+            saveFeedback = saveFeedback,
             onShare = { shareMedia(context, it) },
             onContinue = { path ->
                 viewModel.prepareReference(item, path)?.let(onReuse)
@@ -336,6 +338,7 @@ fun HistoryScreen(
             onClose = { viewingMediaPath = null },
             onSave = { viewModel.saveMedia(path) },
             onShare = { shareMedia(context, path) },
+            saveFeedback = saveFeedback,
         )
     }
 }
