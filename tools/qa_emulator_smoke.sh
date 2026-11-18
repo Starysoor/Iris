@@ -83,7 +83,7 @@ echo "QA step 8: large gallery saves, progress, MediaStore publish and byte-for-
 adb shell am instrument -w -r \
     -e class com.comfyremote.app.data.media.GalleryExporterInstrumentedTest \
     "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee "$EVIDENCE/gallery-save-e2e.txt"
-grep -Eq '^OK \\(2 tests\\)' "$EVIDENCE/gallery-save-e2e.txt" || {
+grep -Eq '^OK \(2 tests\)' "$EVIDENCE/gallery-save-e2e.txt" || {
   echo "FAIL: 16 MiB image / 48 MiB video gallery export verification failed" >&2
   exit 1
 }
