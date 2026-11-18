@@ -78,15 +78,26 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           sha256sum "$APK"
 
-      - name: Name release APK
-        run: cp app/build/outputs/apk/release/app-release.apk "app/build/outputs/apk/release/Iris-${RELEASE_TAG}.apk"
+      - name: Name release APK and generate SHA-256
+        shell: bash
+        run: |
+          ARTIFACT_DIR=app/build/outputs/apk/release
+          cp "$ARTIFACT_DIR/app-release.apk" "$ARTIFACT_DIR/Iris-${RELEASE_TAG}.apk"
+          (
+            cd "$ARTIFACT_DIR"
+            sha256sum "Iris-${RELEASE_TAG}.apk" > "Iris-${RELEASE_TAG}.apk.sha256"
+          )
+          test -s "$ARTIFACT_DIR/Iris-${RELEASE_TAG}.apk.sha256"
 
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
           tag_name: ${{ env.RELEASE_TAG }}
           target_commitish: ${{ github.sha }}
-          name: ${{ env.RELEASE_TAG }}
+          name: Iris ${{ env.RELEASE_TAG }}
           body_path: docs/releases/${{ env.RELEASE_TAG }}.md
           generate_release_notes: false
-          files: app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk
+          prerelease: ${{ contains(env.RELEASE_TAG, '-beta.') || contains(env.RELEASE_TAG, '-rc.') }}
+          files: |
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk.sha256
