@@ -88,8 +88,8 @@ jobs:
             --output "$BASELINE"
           test -s "$BASELINE"
           APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)
-          CERT_OLD=$("$APKSIGNER" verify --print-certs "$BASELINE" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
-          CERT_NEW=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
+          CERT_OLD=$("$APKSIGNER" verify --print-certs "$BASELINE" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n1)
+          CERT_NEW=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^.*certificate SHA-256 digest: //p' | head -n1)
           test -n "$CERT_OLD"
           test "$CERT_OLD" = "$CERT_NEW" || {
             echo "Signing certificate mismatch; beta.2 cannot be safely upgraded" >&2
