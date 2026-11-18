@@ -166,8 +166,8 @@ fun ImageViewerDialog(
                     },
                 contentScale = ContentScale.Fit,
             )
-            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd), saving = feedback?.isSaving == true)
-            ViewerSaveFeedback(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 52.dp))
+            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd), saving = saveFeedback?.isSaving == true)
+            ViewerSaveFeedback(saveFeedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 64.dp))
             Text(
                 stringResource(R.string.gen_viewer_hint),
                 color = ViewerForeground.copy(alpha = 0.6f),
@@ -287,7 +287,8 @@ fun MediaViewerDialog(
                 },
                 modifier = Modifier.fillMaxSize(),
             )
-            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd))
+            ViewerActions(onClose, onSave, onShare, Modifier.align(Alignment.TopEnd), saving = feedback?.isSaving == true)
+            ViewerSaveFeedback(feedback, Modifier.align(Alignment.BottomCenter).padding(bottom = 52.dp))
         }
     }
 }
