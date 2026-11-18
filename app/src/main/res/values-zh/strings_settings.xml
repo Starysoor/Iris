@@ -107,6 +107,7 @@
     <string name="cloud_template_inferred">已生成配置，请检查后再保存</string>
     <string name="settings_update">软件更新</string>
     <string name="settings_update_detail">检查并安装 GitHub Release</string>
+    <string name="settings_version_detail">当前版本说明、开源仓库、问题反馈与软件更新</string>
     <string name="settings_version">版本</string>
     <string name="settings_version_value">Iris · v%1$s</string>
 
