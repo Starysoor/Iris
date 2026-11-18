@@ -13,11 +13,13 @@ import com.comfyremote.app.AppContainer
 import com.comfyremote.app.HistoryItem
 import com.comfyremote.app.data.cloud.AutoDlConfig
 import com.comfyremote.app.data.reference.ReferenceRole
+import com.comfyremote.app.data.media.GallerySaveFeedback
 import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.data.repository.PromptPreset
 import com.comfyremote.app.R
 import com.comfyremote.app.ui.AppStrings
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.SharingStarted
 import kotlinx.coroutines.flow.StateFlow
@@ -25,6 +27,7 @@ import kotlinx.coroutines.flow.asStateFlow
 import kotlinx.coroutines.flow.combine
 import kotlinx.coroutines.flow.stateIn
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 
 class HistoryViewModel(private val container: AppContainer) : ViewModel() {
     val historyLoadError: StateFlow<String?> = container.historyRepository.loadError
@@ -242,13 +245,32 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    private val _saveFeedback = MutableStateFlow<GallerySaveFeedback?>(null)
+    val saveFeedback: StateFlow<GallerySaveFeedback?> = _saveFeedback.asStateFlow()
+    private var saveMediaJob: Job? = null
+
     fun saveMedia(path: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { container.galleryExporter.saveMediaFile(path) }
-                .onSuccess { _message.value = container.galleryExporter.savedMessage() }
-                .onFailure { _message.value = container.galleryExporter.failMessage(it) }
+        // Duplicate taps while a large video is copying must not create
+        // multiple gallery entries or start competing disk writes.
+        if (saveMediaJob?.isActive == true) return
+        _saveFeedback.value = GallerySaveFeedback.saving(path)
+        saveMediaJob = viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    container.galleryExporter.saveMediaFile(path) { progress ->
+                        _saveFeedback.value = GallerySaveFeedback.saving(path, progress)
+                    }
+                }
+            }
+            result.onSuccess {
+                _saveFeedback.value = GallerySaveFeedback.success(path)
+                _message.value = container.galleryExporter.savedMessage()
+            }.onFailure { error ->
+                _saveFeedback.value = GallerySaveFeedback.failure(
+                    path, error.message ?: error.javaClass.simpleName)
+                _message.value = container.galleryExporter.failMessage(error)
+            }
         }
     }
-
     fun clearMessage() { _message.value = null }
 }
