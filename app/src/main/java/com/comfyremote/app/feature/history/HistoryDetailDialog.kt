@@ -52,6 +52,8 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.window.Dialog
 import androidx.compose.ui.window.DialogProperties
 import com.comfyremote.app.HistoryItem
+import com.comfyremote.app.data.media.GallerySaveFeedback
+import com.comfyremote.app.data.media.GallerySavePhase
 import com.comfyremote.app.R
 import com.comfyremote.app.data.media.decodeSampled
 import com.comfyremote.app.feature.generate.MediaThumbnail
@@ -73,6 +75,7 @@ fun HistoryDetailDialog(
     serverLabel: String,
     onClose: () -> Unit,
     onSave: (String) -> Unit,
+    saveFeedback: GallerySaveFeedback? = null,
     onShare: (String) -> Unit,
     onContinue: (String) -> Unit,
     onGenerateVideo: (String) -> Unit,
@@ -113,6 +116,24 @@ fun HistoryDetailDialog(
                     )
                 }
                 IconButton(onClick = onClose) { Icon(Icons.Outlined.Close, stringResource(R.string.action_close)) }
+            }
+            val visibleSave = saveFeedback?.takeIf { it.path in item.images }
+            visibleSave?.let { feedback ->
+                val label = when (feedback.phase) {
+                    GallerySavePhase.SAVING -> stringResource(
+                        R.string.gallery_saving_progress,
+                        ((feedback.progress ?: 0f) * 100f).toInt().coerceIn(0, 100),
+                    )
+                    GallerySavePhase.SUCCEEDED -> stringResource(R.string.gallery_saved)
+                    GallerySavePhase.FAILED -> stringResource(
+                        R.string.gallery_save_failed, feedback.error.orEmpty().take(160))
+                }
+                Text(
+                    label,
+                    modifier = Modifier.fillMaxWidth().padding(horizontal = Spacing.gutter),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.primary,
+                )
             }
             LazyColumn(
                 Modifier.weight(1f),
