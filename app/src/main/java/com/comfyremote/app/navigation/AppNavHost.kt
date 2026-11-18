@@ -342,7 +342,7 @@ private fun AppNavHost(
                     onServers = { navController.navigate(Routes.SERVERS) },
                     onAi = { navController.navigate(Routes.AI_SETTINGS) },
                     onCloud = { navController.navigate(Routes.CLOUD_SERVICES) },
-                    onUpdate = { navController.navigate(Routes.UPDATE) },
+                    onVersion = { navController.navigate(Routes.VERSION) },
                     cloudProviders = container.cloudProviders.info(),
                     onOpenProvider = { providerId ->
                         navController.navigate(Routes.cloudProvider(providerId))
@@ -401,7 +401,7 @@ private fun AppNavHost(
                 val vm: AiSettingsViewModel = viewModel(factory = factory)
                 AiSettingsScreen(vm) { navController.popBackStack() }
             }
-            composable(Routes.UPDATE) {
+            composable(Routes.VERSION) {
                 val vm: UpdateViewModel = viewModel(factory = factory)
                 UpdateScreen(vm) { navController.popBackStack() }
             }
