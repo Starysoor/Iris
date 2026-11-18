@@ -20,10 +20,10 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.platform.LocalClipboardManager
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.PasswordVisualTransformation
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.ui.IrisType
@@ -39,21 +39,21 @@ import com.comfyremote.app.ui.components.IrisPrimaryButton
 import com.comfyremote.app.ui.components.IrisProgressBar
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.IrisSecondaryButton
-import com.comfyremote.app.ui.components.IrisTextField
 import com.comfyremote.app.ui.components.ScreenContentPadding
 import com.comfyremote.app.ui.components.TextAction
 
 @Composable
-fun UpdateScreen(
+fun VersionScreen(
     viewModel: UpdateViewModel,
     onBack: () -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val clipboard = LocalClipboardManager.current
+    val uriHandler = LocalUriHandler.current
     val release = state.release
 
     IrisScaffold(
-        topBar = { DetailTopBar(title = stringResource(R.string.update_title), onBack = onBack) },
+        topBar = { DetailTopBar(title = stringResource(R.string.version_page_title), onBack = onBack) },
         bottomBar = if (release == null) null else ({
             BottomActionBar {
                 IrisPrimaryButton(
@@ -84,16 +84,39 @@ fun UpdateScreen(
                     stringResource(R.string.update_version, state.currentVersion),
                     style = MaterialTheme.typography.headlineSmall.copy(fontFamily = Mono),
                 )
+                Text(
+                    stringResource(R.string.version_page_description),
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+            }
+            IrisCard {
+                Text(
+                    stringResource(R.string.version_page_feedback_heading),
+                    style = MaterialTheme.typography.titleSmall,
+                )
+                Text(
+                    stringResource(R.string.version_page_feedback_detail),
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                )
+                TextAction(
+                    text = stringResource(R.string.version_page_repository),
+                    onClick = { uriHandler.openUri("https://github.com/Starysoor/Iris") },
+                )
+                TextAction(
+                    text = stringResource(R.string.version_page_report_issue),
+                    onClick = { uriHandler.openUri("https://github.com/Starysoor/Iris/issues/new") },
+                )
+                TextAction(
+                    text = stringResource(R.string.version_page_release_history),
+                    onClick = { uriHandler.openUri("https://github.com/Starysoor/Iris/releases") },
+                )
             }
 
-            IrisTextField(
-                value = state.token,
-                onValueChange = viewModel::updateToken,
-                label = stringResource(R.string.update_token),
-                supportingText = stringResource(R.string.update_token_hint),
-                singleLine = true,
-                visualTransformation = PasswordVisualTransformation(),
-                modifier = Modifier.fillMaxWidth(),
+            Text(
+                stringResource(R.string.version_page_update_heading),
+                style = MaterialTheme.typography.titleMedium,
             )
             IrisSecondaryButton(
                 text = if (state.checking) stringResource(R.string.update_checking) else stringResource(R.string.update_check),
