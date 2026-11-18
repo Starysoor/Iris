@@ -83,7 +83,7 @@ import com.comfyremote.app.feature.project.ShotsWorkspaceScreen
 import com.comfyremote.app.feature.tasks.TaskDetailScreen
 import com.comfyremote.app.feature.tasks.TasksScreen
 import com.comfyremote.app.feature.tasks.TasksViewModel
-import com.comfyremote.app.feature.update.UpdateScreen
+import com.comfyremote.app.feature.update.VersionScreen
 import com.comfyremote.app.feature.update.UpdateViewModel
 import com.comfyremote.app.feature.workflows.WorkflowsScreen
 import com.comfyremote.app.feature.workflows.WorkflowsViewModel
@@ -403,7 +403,7 @@ private fun AppNavHost(
             }
             composable(Routes.VERSION) {
                 val vm: UpdateViewModel = viewModel(factory = factory)
-                UpdateScreen(vm) { navController.popBackStack() }
+                VersionScreen(vm) { navController.popBackStack() }
             }
         }
         }
