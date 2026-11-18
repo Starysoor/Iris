@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="settings_project_link_prompt">Show project linking suggestion</string>
+    <string name="settings_project_link_prompt_detail">Show the optional project-link banner at the top of workflows. An already linked project remains visible for safety.</string>
+</resources>
