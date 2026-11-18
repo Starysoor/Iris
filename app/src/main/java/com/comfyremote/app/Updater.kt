@@ -86,7 +86,6 @@ object Updater {
             val builder = Request.Builder()
                 .url(release.browserUrl.ifBlank { release.apkUrl })
                 .header("Accept", "application/octet-stream")
-            if (!token.isNullOrBlank()) builder.header("Authorization", "Bearer $token")
             http.newCall(builder.build()).execute().use { r ->
                 if (!r.isSuccessful) {
                     val errBody = r.body?.string()?.take(200)
