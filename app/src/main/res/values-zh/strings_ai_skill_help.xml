@@ -1,0 +1,36 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="ai_help_title">提示词技能使用说明</string>
+    <string name="ai_help_open">查看提示词技能帮助</string>
+    <string name="ai_help_intro">提示词技能会通过已配置的 AI 端点处理提示词。用途标签描述适用场景，不会因勾选就自动生成、上传素材或跳过付费确认。</string>
+    <string name="ai_help_scope_heading">适用场景（用途标签）</string>
+    <string name="ai_help_input_heading">输入来源标签</string>
+    <string name="ai_help_execution_heading">执行方式标签</string>
+    <string name="ai_help_output_heading">输出方式标签</string>
+    <string name="ai_help_patterns_heading">工作流匹配规则</string>
+    <string name="ai_help_patterns_body">输入用逗号分隔的工作流名称或路径关键词，只有匹配时才显示技能；留空代表所有工作流。忽略大小写，例如 minimax, h3。系统仅将推荐技能排前，仍可选其他技能。</string>
+    <string name="ai_help_steps_heading">实际使用步骤</string>
+    <string name="ai_help_steps_body">1. 先配置 AI 服务地址和模型；2. 打开工作流，在提示词字段点击技能；3. 检查 AI 返回的文本，再选择替换或追加。用途、输入、执行与输出标签需与调用流程的真实能力相符。</string>
+    <string name="ai_help_close">知道了</string>
+    <string name="ai_help_scope_txt2img">文生图：适用于从文字创作图片的工作流</string>
+    <string name="ai_help_scope_img2img">图生图：基于已有图片进行改写或生成</string>
+    <string name="ai_help_scope_txt2video">文生视频：通过文字描述动作、运镜与时序</string>
+    <string name="ai_help_scope_img2video">图生视频：根据图片生成动态视频</string>
+    <string name="ai_help_scope_start_end_video">首尾帧视频：描述起止参考帧之间的连续运动</string>
+    <string name="ai_help_scope_multi_reference">多图参考：人物、场景和其他多张参考素材</string>
+    <string name="ai_help_scope_audio">音频：配音、对白、音效或声音生成</string>
+    <string name="ai_help_input_current_text">当前文本：正在编辑的这个提示词字段</string>
+    <string name="ai_help_input_positive_prompt">正向提示词：工作流中希望出现的内容</string>
+    <string name="ai_help_input_negative_prompt">负向提示词：工作流中希望避免的内容</string>
+    <string name="ai_help_input_current_image">当前图片：正在操作的单张图片</string>
+    <string name="ai_help_input_all_references">全部参考图：所选的全部参考图片及其顺序</string>
+    <string name="ai_help_input_start_end_frames">首尾帧：视频的第一帧和最后一帧参考</string>
+    <string name="ai_help_input_project_context">项目上下文：关联作品的简介、素材及镜头信息</string>
+    <string name="ai_help_execution_text_model">文本模型：发送一次文字扩写请求，不会自动看图</string>
+    <string name="ai_help_execution_vision_model">视觉模型：需要支持看图的模型与相应图片输入</string>
+    <string name="ai_help_execution_multi_stage">多阶段：先分析或规划再生成，具体由调用流程支持</string>
+    <string name="ai_help_output_replace_field">替换字段：用户确认后用生成文本替换当前输入</string>
+    <string name="ai_help_output_append">追加：在已有提示词后补充生成内容</string>
+    <string name="ai_help_output_candidates">候选方案：先显示可选结果，由用户决定</string>
+    <string name="ai_help_output_multi_field">多字段：为多个输入字段提供联动建议</string>
+</resources>
