@@ -202,7 +202,7 @@ fun GenerateScreen(
                     contentPadding = PaddingValues(horizontal = Spacing.gutter, vertical = Spacing.md),
                     verticalArrangement = Arrangement.spacedBy(if (appSettings.compactUi) Spacing.sm else Spacing.md),
                 ) {
-                    if (linkedShot == null && projects.isNotEmpty()) {
+                    if (appSettings.showProjectLinkPrompt && linkedShot == null && projects.isNotEmpty()) {
                         item("studio-optional-link") {
                             InfoBanner(
                                 title = stringResource(R.string.studio_link_optional_title),
