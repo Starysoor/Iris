@@ -18,9 +18,9 @@
     <string name="update_check_failed">Check failed: %1$s</string>
     <string name="update_download_failed">Download failed: %1$s</string>
 
-    <string name="version_page_title">Version & updates</string>
+    <string name="version_page_title">Version &amp; updates</string>
     <string name="version_page_description">Iris is an open-source Android workspace for local and hosted image/video workflows. Create and reuse prompts, manage project shots and Takes, preview results, save media to your gallery, and assemble video timelines. This page shows the installed version and checks public GitHub Releases for updates.</string>
-    <string name="version_page_feedback_heading">Feedback & source code</string>
+    <string name="version_page_feedback_heading">Feedback &amp; source code</string>
     <string name="version_page_feedback_detail">Report problems, propose features, or review the source on GitHub. Include the app version and steps to reproduce when reporting a bug.</string>
     <string name="version_page_repository">Open GitHub repository</string>
     <string name="version_page_report_issue">Report a bug or suggestion</string>
