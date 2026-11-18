@@ -9,6 +9,10 @@ import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.material3.AlertDialog
+import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.outlined.HelpOutline
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
@@ -48,13 +52,21 @@ internal fun SkillEditDialog(
     var inputs by remember(skill) { mutableStateOf(skill?.inputSources.orEmpty()) }
     var execution by remember(skill) { mutableStateOf(skill?.execution ?: SkillExecution.TEXT_MODEL) }
     var output by remember(skill) { mutableStateOf(skill?.output ?: SkillOutput.REPLACE_FIELD) }
+    var showHelp by remember { mutableStateOf(false) }
     AlertDialog(
         onDismissRequest = onDismiss,
         title = {
-            Text(
-                if (skill == null) stringResource(R.string.ai_skill_new_title)
-                else stringResource(R.string.ai_skill_edit_title)
-            )
+            Row {
+                Text(
+                    if (skill == null) stringResource(R.string.ai_skill_new_title)
+                    else stringResource(R.string.ai_skill_edit_title),
+                    modifier = Modifier.weight(1f),
+                )
+                IconButton(onClick = { showHelp = true }) {
+                    Icon(Icons.Outlined.HelpOutline,
+                        contentDescription = stringResource(R.string.ai_help_open))
+                }
+            }
         },
         text = {
             Column(
@@ -155,6 +167,7 @@ internal fun SkillEditDialog(
             }
         },
     )
+    if (showHelp) SkillUsageHelpDialog { showHelp = false }
 }
 
 @OptIn(ExperimentalLayoutApi::class)
