@@ -18,6 +18,7 @@ data class AppSettings(
     val recentResultsCount: Int = 2,               // 0..4
     val recentPresetsCount: Int = 2,               // 0..4
     val showServerWorkspace: Boolean = true,
+    val showProjectLinkPrompt: Boolean = true,
     val defaultBatchCount: Int = 1,                // 1..16
     val defaultLocalQueue: Boolean = true,
     val defaultRandomSeed: Boolean = true,
@@ -45,6 +46,7 @@ class AppSettingsStore(private val prefs: SharedPreferences) {
         recentResultsCount = prefs.getInt(KEY_RECENT_RESULTS, 2).coerceIn(0, 4),
         recentPresetsCount = prefs.getInt(KEY_RECENT_PRESETS, 2).coerceIn(0, 4),
         showServerWorkspace = prefs.getBoolean(KEY_SERVER_WORKSPACE, true),
+        showProjectLinkPrompt = prefs.getBoolean(KEY_PROJECT_LINK_PROMPT, true),
         defaultBatchCount = prefs.getInt(KEY_BATCH, 1).coerceIn(1, 16),
         defaultLocalQueue = prefs.getBoolean(KEY_LOCAL_QUEUE, true),
         defaultRandomSeed = prefs.getBoolean(KEY_RANDOM_SEED, true),
@@ -69,6 +71,7 @@ class AppSettingsStore(private val prefs: SharedPreferences) {
             .putInt(KEY_RECENT_RESULTS, settings.recentResultsCount.coerceIn(0, 4))
             .putInt(KEY_RECENT_PRESETS, settings.recentPresetsCount.coerceIn(0, 4))
             .putBoolean(KEY_SERVER_WORKSPACE, settings.showServerWorkspace)
+            .putBoolean(KEY_PROJECT_LINK_PROMPT, settings.showProjectLinkPrompt)
             .putInt(KEY_BATCH, settings.defaultBatchCount.coerceIn(1, 16))
             .putBoolean(KEY_LOCAL_QUEUE, settings.defaultLocalQueue)
             .putBoolean(KEY_RANDOM_SEED, settings.defaultRandomSeed)
@@ -93,6 +96,7 @@ class AppSettingsStore(private val prefs: SharedPreferences) {
         private const val KEY_RECENT_RESULTS = "appRecentResults"
         private const val KEY_RECENT_PRESETS = "appRecentPresets"
         private const val KEY_SERVER_WORKSPACE = "appServerWorkspace"
+        private const val KEY_PROJECT_LINK_PROMPT = "appProjectLinkPrompt"
         private const val KEY_BATCH = "appDefaultBatch"
         private const val KEY_LOCAL_QUEUE = "appDefaultLocalQueue"
         private const val KEY_RANDOM_SEED = "appDefaultRandomSeed"
