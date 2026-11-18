@@ -32,6 +32,7 @@ import com.comfyremote.app.data.generation.GenerationRequest
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.media.ImagePreprocessor
 import com.comfyremote.app.data.media.BoundedMediaInput
+import com.comfyremote.app.data.media.GallerySaveFeedback
 import com.comfyremote.app.data.media.decodeSampled
 import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.data.repository.PromptPreset
@@ -1196,14 +1197,33 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    private val _saveFeedback = MutableStateFlow<GallerySaveFeedback?>(null)
+    val saveFeedback: StateFlow<GallerySaveFeedback?> = _saveFeedback.asStateFlow()
+    private var saveMediaJob: Job? = null
+
     fun saveMedia(path: String) {
-        viewModelScope.launch(Dispatchers.IO) {
-            runCatching { container.galleryExporter.saveMediaFile(path) }
-                .onSuccess { _state.update { it.copy(message = container.galleryExporter.savedMessage()) } }
-                .onFailure { e -> _state.update { it.copy(message = container.galleryExporter.failMessage(e)) } }
+        // Duplicate taps while a large video is copying must not create
+        // multiple gallery entries or start competing disk writes.
+        if (saveMediaJob?.isActive == true) return
+        _saveFeedback.value = GallerySaveFeedback.saving(path)
+        saveMediaJob = viewModelScope.launch {
+            val result = runCatching {
+                withContext(Dispatchers.IO) {
+                    container.galleryExporter.saveMediaFile(path) { progress ->
+                        _saveFeedback.value = GallerySaveFeedback.saving(path, progress)
+                    }
+                }
+            }
+            result.onSuccess {
+                _saveFeedback.value = GallerySaveFeedback.success(path)
+                _state.update { it.copy(message = container.galleryExporter.savedMessage()) }
+            }.onFailure { error ->
+                _saveFeedback.value = GallerySaveFeedback.failure(
+                    path, error.message ?: error.javaClass.simpleName)
+                _state.update { it.copy(message = container.galleryExporter.failMessage(error)) }
+            }
         }
     }
-
     private fun currentPrompts(draft: WorkflowDraft): List<LabeledText> = draft.fields
         .filter { it.kind == FieldKind.TEXT }
         .map { LabeledText(it.label, draft.values[it.key] ?: it.value) }
