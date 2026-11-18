@@ -11,7 +11,7 @@ class UpdateRepository(private val app: Application) {
         app.packageManager.getPackageInfo(app.packageName, 0).versionName ?: "0"
     }.getOrDefault("0")
 
-    suspend fun latest(): GhRelease = Updater.latest()
+    suspend fun latest(): GhRelease = Updater.latest(currentVersion())
 
     fun isNewer(release: GhRelease): Boolean =
         Updater.compareVersions(release.tag, currentVersion()) > 0
