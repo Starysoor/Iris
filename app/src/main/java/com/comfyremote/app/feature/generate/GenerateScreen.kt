@@ -69,6 +69,7 @@ fun GenerateScreen(
 ) {
     val state by viewModel.state.collectAsState()
     val linkedShot by viewModel.linkedShot.collectAsState()
+    val saveFeedback by viewModel.saveFeedback.collectAsState()
     val projects by viewModel.projects.collectAsState()
     val tasks by viewModel.tasks.collectAsState()
     val appSettings = LocalAppSettings.current
@@ -465,6 +466,7 @@ fun GenerateScreen(
                 onClose = { viewingResult = null },
                 onSave = { viewModel.saveMedia(result.localPath) },
                 onShare = { shareMedia(context, result.localPath) },
+                saveFeedback = saveFeedback,
             )
         }
     }
