@@ -7,6 +7,7 @@ import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.withContext
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import org.json.JSONArray
 import org.json.JSONObject
 import java.io.File
 import java.util.concurrent.TimeUnit
@@ -32,49 +33,91 @@ object Updater {
         .readTimeout(180, TimeUnit.SECONDS)
         .build()
 
-    /** Positive when a is newer than b. Tolerates a leading "v" and missing segments. */
+    /**
+     * SemVer comparison with prerelease precedence: beta.10 > beta.2,
+     * and v2.4.0 stable > v2.4.0-beta.9.
+     */
     fun compareVersions(a: String, b: String): Int {
-        fun parts(v: String) = v.removePrefix("v").removePrefix("V").split('.').map { it.trim().toIntOrNull() ?: 0 }
-        val pa = parts(a); val pb = parts(b)
-        for (i in 0 until maxOf(pa.size, pb.size)) {
-            val x = pa.getOrElse(i) { 0 }; val y = pb.getOrElse(i) { 0 }
-            if (x != y) return x - y
+        data class Version(val core: List<Int>, val suffix: List<String>?)
+        fun parse(raw: String): Version {
+            val cleaned = raw.trim().removePrefix("v").removePrefix("V").substringBefore('+')
+            val core = cleaned.substringBefore('-').split('.').map { it.toIntOrNull() ?: 0 }
+            val suffix = cleaned.substringAfter('-', "").takeIf { it.isNotBlank() }?.split('.')
+            return Version(core, suffix)
         }
-        return 0
+        val left = parse(a)
+        val right = parse(b)
+        for (i in 0 until maxOf(left.core.size, right.core.size)) {
+            val compared = left.core.getOrElse(i) { 0 }.compareTo(right.core.getOrElse(i) { 0 })
+            if (compared != 0) return compared
+        }
+        if (left.suffix == null && right.suffix != null) return 1
+        if (left.suffix != null && right.suffix == null) return -1
+        if (left.suffix == null || right.suffix == null) return 0
+        for (i in 0 until minOf(left.suffix.size, right.suffix.size)) {
+            val l = left.suffix[i]
+            val r = right.suffix[i]
+            val li = l.toIntOrNull()
+            val ri = r.toIntOrNull()
+            val compared = when {
+                li != null && ri != null -> li.compareTo(ri)
+                li != null -> -1
+                ri != null -> 1
+                else -> l.compareTo(r, ignoreCase = true)
+            }
+            if (compared != 0) return compared
+        }
+        return left.suffix.size.compareTo(right.suffix.size)
     }
 
-    suspend fun latest(): GhRelease = withContext(Dispatchers.IO) {
-        val builder = Request.Builder()
-            .url("https://api.github.com/repos/$REPO/releases/latest")
+    /**
+     * Installed betas can see newer beta and stable releases; stable installs
+     * only receive stable updates to avoid unwanted prerelease enrollment.
+     */
+    internal fun selectRelease(releases: JSONArray, installedVersion: String): GhRelease {
+        val includePrerelease = installedVersion.contains('-')
+        val candidates = (0 until releases.length()).mapNotNull { index ->
+            val release = releases.optJSONObject(index) ?: return@mapNotNull null
+            if (release.optBoolean("draft") ||
+                (!includePrerelease && release.optBoolean("prerelease"))
+            ) return@mapNotNull null
+            val tag = release.optString("tag_name")
+            if (tag.isBlank()) return@mapNotNull null
+            val assets = release.optJSONArray("assets") ?: return@mapNotNull null
+            val apk = (0 until assets.length())
+                .mapNotNull { assets.optJSONObject(it) }
+                .firstOrNull { asset ->
+                    asset.optString("name").endsWith(".apk", ignoreCase = true) &&
+                        asset.optString("browser_download_url").startsWith(
+                            "https://github.com/$REPO/releases/download/",
+                        )
+                } ?: return@mapNotNull null
+            GhRelease(
+                tag = tag,
+                name = release.optString("name").ifBlank { tag },
+                notes = release.optString("body").orEmpty(),
+                apkUrl = apk.optString("url"),
+                browserUrl = apk.optString("browser_download_url"),
+                apkSize = apk.optLong("size"),
+            )
+        }
+        return candidates.maxWithOrNull { a, b -> compareVersions(a.tag, b.tag) }
+            ?: throw ComfyException("没有可下载的公开 APK Release")
+    }
+
+    suspend fun latest(installedVersion: String): GhRelease = withContext(Dispatchers.IO) {
+        // The /releases/latest endpoint intentionally excludes prereleases.
+        val request = Request.Builder()
+            .url("https://api.github.com/repos/$REPO/releases?per_page=30")
             .header("Accept", "application/vnd.github+json")
             .header("X-GitHub-Api-Version", "2022-11-28")
-        http.newCall(builder.build()).execute().use { r ->
-            val body = r.body?.string() ?: ""
-            if (r.code == 404) throw ComfyException("暂无公开发布的正式版本")
-            if (!r.isSuccessful) throw ComfyException("HTTP ${r.code}: ${body.take(200)}")
-            val o = JSONObject(body)
-            val assets = o.optJSONArray("assets") ?: org.json.JSONArray()
-            var apkUrl = ""; var browserUrl = ""; var apkSize = 0L
-            for (i in 0 until assets.length()) {
-                val a = assets.optJSONObject(i) ?: continue
-                if (a.optString("name").endsWith(".apk")) {
-                    // API asset URL (not browser_download_url): with Accept octet-stream it
-                    // 302-redirects to a pre-signed S3 URL, which works for private repos.
-                    apkUrl = a.optString("url")
-                    browserUrl = a.optString("browser_download_url")
-                    apkSize = a.optLong("size")
-                    break
-                }
+            .build()
+        http.newCall(request).execute().use { r ->
+            val body = r.body?.string().orEmpty()
+            if (!r.isSuccessful) {
+                throw ComfyException("GitHub Releases HTTP " + r.code + ": " + body.take(160))
             }
-            if (apkUrl.isEmpty()) throw ComfyException("该 Release 里没有 .apk 附件")
-            GhRelease(
-                tag = o.optString("tag_name"),
-                name = o.optString("name").ifEmpty { o.optString("tag_name") },
-                notes = o.optString("body").orEmpty(),
-                apkUrl = apkUrl,
-                browserUrl = browserUrl,
-                apkSize = apkSize,
-            )
+            selectRelease(JSONArray(body), installedVersion)
         }
     }
 
