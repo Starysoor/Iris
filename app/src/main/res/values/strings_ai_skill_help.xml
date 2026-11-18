@@ -10,7 +10,7 @@
     <string name="ai_help_patterns_heading">Workflow matching</string>
     <string name="ai_help_patterns_body">Comma-separated workflow name/path keywords limit where a skill appears; empty means all workflows. Matching is case-insensitive. For example: minimax, h3. The most suitable skill is recommended first, but you can pick another.</string>
     <string name="ai_help_steps_heading">How to use</string>
-    <string name="ai_help_steps_body">1. Configure your AI endpoint. 2. Open a workflow\'s prompt field and tap a skill. 3. Review the response and choose replace or append. Edit any scope/input/execution/output tag only when the receiving workflow supports it.</string>
+    <string name="ai_help_steps_body">1. Configure your AI endpoint. 2. Open a prompt field in the workflow and tap a skill. 3. Review the response and choose replace or append. Edit any scope/input/execution/output tag only when the receiving workflow supports it.</string>
     <string name="ai_help_close">Got it</string>
     <string name="ai_help_scope_txt2img">Text-to-image prompts and generation tasks</string>
     <string name="ai_help_scope_img2img">Image-to-image editing or image-guided generation</string>
@@ -25,7 +25,7 @@
     <string name="ai_help_input_current_image">The image selected for the current input</string>
     <string name="ai_help_input_all_references">All selected reference images, in their chosen order</string>
     <string name="ai_help_input_start_end_frames">First and final frames of a video request</string>
-    <string name="ai_help_input_project_context">The linked project\'s description, assets and shot context</string>
+    <string name="ai_help_input_project_context">The linked project description, assets and shot context</string>
     <string name="ai_help_execution_text_model">One text-model prompt request; does not inspect images</string>
     <string name="ai_help_execution_vision_model">Image-aware model capable of examining references</string>
     <string name="ai_help_execution_multi_stage">Multi-step planning and rewriting, where implemented by the caller</string>
