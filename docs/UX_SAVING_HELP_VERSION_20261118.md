@@ -19,7 +19,7 @@
 
 在「设置 → 版本」中点入唯一的“版本与更新”页面，展示实际安装的版本号、产品功能简介、开源仓库、反馈 Issue 入口、历史发布列表，并在同页执行现有 GitHub Release 检查/下载/安装；不再有独立的软件更新设置行。
 
-Iris 是公开仓库，移除 GitHub Token 文本框、Token 持久读取和 Release 下载认证头；通过公开 Releases API 查询并优先通过公开 browser_download_url 下载 APK。**AutoDL / 其他云厂商的授权 Token 不受影响。** 原先设备里历史遗留的 GitHub Token 数据不会被再次读取（并不会主动清除所有旧版本的安全存储键）。
+Iris 是公开仓库，移除 GitHub Token 文本框、Token 持久读取和 Release 下载认证头；通过公开 Releases API 查询并优先通过公开 browser_download_url 下载 APK。**AutoDL / 其他云厂商的授权 Token 不受影响。** 升级后清除历史保存的 GitHub Release Token（明文与加密形式），不会清除 AI、AutoDL 或其他云厂商的访问凭据。
 
 ## QA 检查项
 
