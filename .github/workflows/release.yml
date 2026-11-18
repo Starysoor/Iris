@@ -78,6 +78,25 @@ jobs:
           "$APKSIGNER" verify --verbose --print-certs "$APK"
           sha256sum "$APK"
 
+      - name: Verify signing certificate matches beta.2
+        shell: bash
+        run: |
+          APK=app/build/outputs/apk/release/app-release.apk
+          BASELINE="$RUNNER_TEMP/Iris-v2.4.0-beta.2.apk"
+          curl --fail --location --retry 3 --retry-delay 2 --silent --show-error \
+            "https://github.com/Starysoor/Iris/releases/download/v2.4.0-beta.2/Iris-v2.4.0-beta.2.apk" \
+            --output "$BASELINE"
+          test -s "$BASELINE"
+          APKSIGNER=$(find "$ANDROID_HOME/build-tools" -type f -name apksigner | sort -V | tail -n1)
+          CERT_OLD=$("$APKSIGNER" verify --print-certs "$BASELINE" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
+          CERT_NEW=$("$APKSIGNER" verify --print-certs "$APK" | sed -n 's/^Signer #1 certificate SHA-256 digest: //p' | head -n1)
+          test -n "$CERT_OLD"
+          test "$CERT_OLD" = "$CERT_NEW" || {
+            echo "Signing certificate mismatch; beta.2 cannot be safely upgraded" >&2
+            exit 1
+          }
+          echo "PASS: beta.2 and new release share the same signing certificate"
+
       - name: Name release APK and generate SHA-256
         shell: bash
         run: |
