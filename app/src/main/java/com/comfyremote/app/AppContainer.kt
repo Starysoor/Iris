@@ -113,7 +113,7 @@ class AppContainer(val app: Application) {
     )
     val serverHealthRepository = ServerHealthRepository()
 
-    val updateSettingsStore = UpdateSettingsStore(prefs, secretStore)
+    val updateSettingsStore = UpdateSettingsStore(prefs)
     val updateRepository = UpdateRepository(app)
 
     val promptPresetRepository = PromptPresetRepository(prefs)
