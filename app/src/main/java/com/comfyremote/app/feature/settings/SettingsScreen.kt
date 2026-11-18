@@ -13,7 +13,6 @@ import androidx.compose.material.icons.outlined.Cloud
 import androidx.compose.material.icons.outlined.Dns
 import androidx.compose.material.icons.outlined.Info
 import androidx.compose.material.icons.outlined.Search
-import androidx.compose.material.icons.outlined.SystemUpdate
 import androidx.compose.material.icons.outlined.Tune
 import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
@@ -54,7 +53,7 @@ fun SettingsScreen(
     onServers: () -> Unit,
     onAi: () -> Unit,
     onCloud: () -> Unit,
-    onUpdate: () -> Unit,
+    onVersion: () -> Unit,
     cloudProviders: List<CloudProviderInfo> = emptyList(),
     onOpenProvider: (String) -> Unit = {},
 ) {
@@ -100,18 +99,11 @@ fun SettingsScreen(
         ),
         SettingsEntry(
             group = about,
-            title = stringResource(R.string.settings_update),
-            detail = stringResource(R.string.settings_update_detail),
-            keywords = stringResource(R.string.settings_keywords_update),
-            icon = Icons.Outlined.SystemUpdate,
-            onClick = onUpdate,
-        ),
-        SettingsEntry(
-            group = about,
             title = stringResource(R.string.settings_version),
-            detail = "",
+            detail = stringResource(R.string.settings_version_detail),
             keywords = stringResource(R.string.settings_keywords_update),
             icon = Icons.Outlined.Info,
+            onClick = onVersion,
             value = stringResource(R.string.settings_version_value, version),
         ),
     )
