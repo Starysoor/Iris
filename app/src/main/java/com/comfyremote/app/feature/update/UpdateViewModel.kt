@@ -14,7 +14,6 @@ import kotlinx.coroutines.launch
 
 data class UpdateUiState(
     val currentVersion: String = "",
-    val token: String = "",
     val checking: Boolean = false,
     val release: GhRelease? = null,
     val status: String? = null,
@@ -27,20 +26,15 @@ class UpdateViewModel(private val container: AppContainer) : ViewModel() {
     private val _state = MutableStateFlow(
         UpdateUiState(
             currentVersion = container.updateRepository.currentVersion(),
-            token = container.updateSettingsStore.ghToken().orEmpty(),
         )
     )
     val state: StateFlow<UpdateUiState> = _state.asStateFlow()
 
-    fun updateToken(value: String) = _state.update { it.copy(token = value) }
-
     fun check() {
         if (_state.value.checking || _state.value.downloading) return
-        val token = _state.value.token.trim().ifBlank { null }
-        container.updateSettingsStore.saveGhToken(token)
         _state.update { it.copy(checking = true, status = AppStrings.get(R.string.update_status_checking), isError = false) }
         viewModelScope.launch {
-            runCatching { container.updateRepository.latest(token) }
+            runCatching { container.updateRepository.latest() }
                 .onSuccess { release ->
                     container.updateSettingsStore.markUpdateChecked()
                     if (container.updateRepository.isNewer(release)) {
@@ -70,11 +64,10 @@ class UpdateViewModel(private val container: AppContainer) : ViewModel() {
     fun downloadAndInstall() {
         val release = _state.value.release ?: return
         if (_state.value.downloading) return
-        val token = container.updateSettingsStore.ghToken()
         _state.update { it.copy(downloading = true, progress = 0f, isError = false) }
         viewModelScope.launch {
             runCatching {
-                container.updateRepository.download(token, release) { p ->
+                container.updateRepository.download(release) { p ->
                     _state.update { it.copy(progress = p) }
                 }
             }.onSuccess { apk ->
