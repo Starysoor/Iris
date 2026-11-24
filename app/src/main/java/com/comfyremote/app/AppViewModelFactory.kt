@@ -2,6 +2,8 @@ package com.comfyremote.app
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import androidx.lifecycle.createSavedStateHandle
+import androidx.lifecycle.viewmodel.CreationExtras
 import com.comfyremote.app.feature.ai.AiSettingsViewModel
 import com.comfyremote.app.feature.cloud.CloudServicesViewModel
 import com.comfyremote.app.feature.connect.ConnectViewModel
@@ -17,6 +19,14 @@ import com.comfyremote.app.feature.workflows.WorkflowsViewModel
 class AppViewModelFactory(
     private val container: AppContainer,
 ) : ViewModelProvider.Factory {
+    @Suppress("UNCHECKED_CAST")
+    override fun <T : ViewModel> create(modelClass: Class<T>, extras: CreationExtras): T {
+        if (modelClass == GenerateViewModel::class.java) {
+            return GenerateViewModel(container, extras.createSavedStateHandle()) as T
+        }
+        return create(modelClass)
+    }
+
     @Suppress("UNCHECKED_CAST")
     override fun <T : ViewModel> create(modelClass: Class<T>): T = when {
         modelClass.isAssignableFrom(AppViewModel::class.java) -> AppViewModel(container)

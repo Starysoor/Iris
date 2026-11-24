@@ -212,14 +212,14 @@ private fun AppNavHost(
                 HistoryScreen(
                     vm,
                     onReuse = ::openTransfer,
-                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                    onOpenProject = { projectId, shotId -> navController.navigate(Routes.projectShots(projectId, shotId)) },
                 )
             }
             composable(Routes.PROJECTS) {
                 val vm: ProjectViewModel = viewModel(factory = factory)
                 ProjectListScreen(
                     viewModel = vm,
-                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                    onOpenProject = { projectId -> navController.navigate(Routes.projectShots(projectId)) },
                 )
             }
             composable(
@@ -258,14 +258,27 @@ private fun AppNavHost(
             }
             composable(
                 Routes.PROJECT_SHOTS_PATTERN,
-                arguments = listOf(navArgument("projectId") { type = NavType.StringType })
+                arguments = listOf(
+                    navArgument("projectId") { type = NavType.StringType },
+                    navArgument("shotId") {
+                        type = NavType.StringType
+                        nullable = true
+                        defaultValue = null
+                    },
+                )
             ) { entry ->
                 val vm: ProjectViewModel = viewModel(factory = factory)
+                val id = entry.arguments?.getString("projectId").orEmpty()
                 ShotsWorkspaceScreen(
                     viewModel = vm,
-                    projectId = entry.arguments?.getString("projectId").orEmpty(),
+                    projectId = id,
+                    initialShotId = entry.arguments?.getString("shotId"),
                     onBack = { navController.popBackStack() },
                     onOpenShot = { path, name -> navController.navigate(Routes.generate(path, name)) },
+                    onOpenOverview = { navController.navigate(Routes.project(id)) },
+                    onOpenAssets = { navController.navigate(Routes.projectAssets(id)) },
+                    onOpenTimeline = { navController.navigate(Routes.projectTimeline(id)) },
+                    onOpenTask = { navController.navigate(Routes.task(it)) },
                 )
             }
             composable(
@@ -318,7 +331,9 @@ private fun AppNavHost(
                     onOpenCloudVideo = { path, name ->
                         navController.navigate(Routes.generate(path, name))
                     },
-                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                    onOpenProject = { projectId, shotId ->
+                        navController.navigate(Routes.projectShots(projectId, shotId))
+                    },
                 )
             }
             composable(
@@ -331,7 +346,9 @@ private fun AppNavHost(
                     taskId = entry.arguments?.getString("taskId").orEmpty(),
                     onBack = { navController.popBackStack() },
                     onReuse = ::openTransfer,
-                    onOpenProject = { projectId -> navController.navigate(Routes.project(projectId)) },
+                    onOpenProject = { projectId, shotId ->
+                        navController.navigate(Routes.projectShots(projectId, shotId))
+                    },
                 )
             }
             composable(Routes.SETTINGS) {

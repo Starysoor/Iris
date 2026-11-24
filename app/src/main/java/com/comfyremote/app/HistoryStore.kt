@@ -69,7 +69,7 @@ class HistoryStore(
      */
     internal fun cleanupAbandonedStudioExports(now: Long = System.currentTimeMillis()): Int {
         val threshold = now - STUDIO_TMP_GRACE_MS
-        val pattern = Regex("""project-export-\d{10,20}_\d+\.mp4\.tmp""")
+        val pattern = Regex("""project-export-(?:\d{10,20}|[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12})_\d+\.mp4\.tmp""")
         return dir.listFiles()?.count { candidate ->
             candidate.isFile && !Files.isSymbolicLink(candidate.toPath()) &&
                 pattern.matches(candidate.name) && candidate.lastModified() < threshold &&

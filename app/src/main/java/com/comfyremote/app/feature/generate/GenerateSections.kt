@@ -375,7 +375,37 @@ internal fun AdvancedParamsCard(
         onToggle = onToggle,
         badge = fields.size.toString(),
     ) {
-        fields.forEach { field -> ParamField(field, values[field.key] ?: field.value) { onChange(field.key, it) } }
+        ParameterGroups(fields, values, onChange)
+    }
+}
+
+@Composable
+internal fun ModelParametersCard(
+    fields: List<PromptField>,
+    values: Map<String, String>,
+    onChange: (String, String) -> Unit,
+) {
+    IrisCard {
+        Text(stringResource(R.string.gen_model_parameters), style = MaterialTheme.typography.titleMedium)
+        ParameterGroups(fields, values, onChange)
+    }
+}
+
+@Composable
+private fun ParameterGroups(
+    fields: List<PromptField>,
+    values: Map<String, String>,
+    onChange: (String, String) -> Unit,
+) {
+    val groups = fields.groupBy(PromptField::nodeId)
+    groups.forEach { (id, group) ->
+        if (groups.size > 1) {
+            Text(
+                "${group.first().label.substringBefore(" · ")} · #$id",
+                style = MaterialTheme.typography.titleSmall,
+            )
+        }
+        group.forEach { field -> ParamField(field, values[field.key] ?: field.value) { onChange(field.key, it) } }
     }
 }
 

@@ -398,7 +398,7 @@ class GenerationRunner(
             // ComfyUI uses `images` and `gifs`; AutoDL results are normalised into
             // `images`/`videos`. Audio is persisted too so cloud TTS can share the
             // same history pipeline.
-            listOf("images" to "image", "gifs" to "image", "videos" to "video", "audio" to "audio")
+            listOf("images" to "image", "gifs" to "image", "videos" to "video", "audio" to "audio", "audios" to "audio")
                 .forEach { (arrayName, defaultKind) ->
                     val array = node.optJSONArray(arrayName) ?: return@forEach
                     for (i in 0 until array.length()) {
@@ -409,7 +409,9 @@ class GenerationRunner(
                             subfolder = image.optString("subfolder"),
                             type = image.optString("type", "output"),
                             url = url,
-                            mediaKind = image.optString("media_kind").ifBlank { defaultKind },
+                            mediaKind = image.optString("media_kind").ifBlank {
+                                if (image.optString("format").startsWith("video/")) "video" else defaultKind
+                            },
                             fileType = image.optString("file_type"),
                         )
                     }
@@ -421,13 +423,9 @@ class GenerationRunner(
     private fun extensionFor(image: OutputImage): String {
         val reported = image.fileType.trim().removePrefix(".").lowercase()
         if (reported.matches(Regex("[a-z0-9]{2,5}"))) return reported
-        val fromUrl = image.url
-            ?.substringBefore('?')
-            ?.substringBefore('#')
-            ?.substringAfterLast('.', "")
-            ?.lowercase()
-            .orEmpty()
-        if (fromUrl.matches(Regex("[a-z0-9]{2,5}"))) return fromUrl
+        val fromName = (image.url ?: image.filename).substringBefore('?').substringBefore('#')
+            .substringAfterLast('.', "").lowercase()
+        if (fromName.matches(Regex("[a-z0-9]{2,5}"))) return fromName
         return when (image.mediaKind) {
             "video" -> "mp4"
             "audio" -> "wav"

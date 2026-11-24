@@ -31,41 +31,51 @@ class SiliconFlowRepository(
 
     override suspend fun discoverModels(): List<String> {
         val account = account()
+        return discoverModelIds(settings, account) { discoverMetadata(account) }
+    }
+
+    private suspend fun discoverMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
         if (account.token.isBlank()) throw ComfyException("Configure a SiliconFlow API key first")
         val root = CloudHttp.getJson("${account.baseUrl.trimEnd('/')}/models", auth(account))
-        return modelIdsFromResponse(root.optJSONArray("data")).filter(::looksLikeMediaModel)
+        return providerModelDirectory(root.optJSONArray("data")).filter {
+            it.kind in setOf("image", "video", "audio") ||
+                (it.kind.isBlank() && CloudModelParameters.looksLikeMediaModel(it.id))
+        }
     }
 
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
         val account = account()
         if (account.token.isBlank()) return emptyList()
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-            .filter(CloudModelParameters::looksLikeMediaModel)
-        return settings.enabledModels(id, models).map { model ->
-            CloudWorkflowSummary(
-                id = model,
-                name = model.substringAfterLast('/'),
-                description = "SiliconFlow $model",
-                kind = kindOf(model),
-                priceType = "official_api",
-            )
+        return modelDirectory(settings, account, force) { discoverMetadata(account) }.map { model ->
+            val kind = kindOf(model)
+            model.summary(kind, fallbackName = model.id.substringAfterLast('/'),
+                fallbackDescription = "SiliconFlow $kind generation",
+                unavailableReason = unavailableReason(kind))
         }
     }
 
-    override suspend fun detail(workflowId: String): CloudWorkflowSpec = CloudWorkflowSpec(
-        id = workflowId,
-        name = workflowId.substringAfterLast('/'),
-        kind = kindOf(workflowId),
-        description = "SiliconFlow hosted model",
-        rules = rulesFor(workflowId),
-    )
+    override suspend fun detail(workflowId: String): CloudWorkflowSpec {
+        val model = settings.modelMetadata(account(), workflowId)
+        val kind = kindOf(model)
+        val unavailable = unavailableReason(kind)
+        return CloudWorkflowSpec(
+            id = workflowId,
+            name = workflowId.substringAfterLast('/'),
+            kind = kind,
+            description = "SiliconFlow $kind generation",
+            rules = if (unavailable.isBlank()) CloudModelParameters.siliconFlowRules(workflowId, kind) else emptyList(),
+            unavailableReason = unavailable,
+        ).withMetadata(model)
+    }
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
         val account = account()
         if (account.token.isBlank()) throw ComfyException("Configure a SiliconFlow API key first")
         val headers = auth(account)
         val base = account.baseUrl.trimEnd('/')
-        return if (kindOf(workflowId) == "video") {
+        val kind = kindOf(settings.modelMetadata(account, workflowId))
+        unavailableReason(kind).takeIf(String::isNotBlank)?.let { throw ComfyException(it) }
+        return if (kind == "video") {
             val payload = buildSiliconFlowVideoPayload(workflowId, body)
             val response = CloudHttp.postJson("$base/video/submit", payload, headers)
             val requestId = response.optString("requestId")
@@ -155,13 +165,11 @@ class SiliconFlowRepository(
         CloudHttp.downloadTo(url, target)
     }
 
-    private fun rulesFor(model: String): List<CloudInputRule> =
-        CloudModelParameters.siliconFlowRules(model)
+    private fun kindOf(model: CloudModelMetadata): String =
+        model.kind.ifBlank { CloudModelParameters.mediaKindHint(model.id) }
 
-    private fun kindOf(model: String): String = CloudModelParameters.kindOf(model)
-
-    private fun looksLikeMediaModel(model: String): Boolean =
-        CloudModelParameters.looksLikeMediaModel(model)
+    private fun unavailableReason(kind: String): String =
+        if (kind in setOf("image", "video")) "" else "The SiliconFlow generation contract is unavailable for this model."
 
     private fun extensionOf(url: String): String =
         url.substringBefore('?').substringAfterLast('.', "").lowercase().takeIf { it.length in 2..5 }.orEmpty()

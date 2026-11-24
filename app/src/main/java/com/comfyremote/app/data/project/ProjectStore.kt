@@ -3,6 +3,7 @@ package com.comfyremote.app.data.project
 import android.content.Context
 import com.comfyremote.app.data.cloud.AutoDlConfig
 import com.comfyremote.app.data.reference.ProjectAsset
+import com.comfyremote.app.data.reference.AssetKind
 import com.comfyremote.app.data.storyboard.StoryboardCodec
 import java.io.File
 import java.io.FileOutputStream
@@ -19,8 +20,12 @@ import org.json.JSONArray
  * [com.comfyremote.app.data.storyboard.StoryboardStore] so both stores behave
  * identically during the migration window.
  */
-class ProjectStore internal constructor(private val file: File) {
-    constructor(context: Context) : this(File(context.filesDir, "projects.json"))
+class ProjectStore internal constructor(
+    private val file: File,
+    private val protectedMedia: () -> Set<String> = { emptySet() },
+) {
+    constructor(context: Context, protectedMedia: () -> Set<String> = { emptySet() }) :
+        this(File(context.filesDir, "projects.json"), protectedMedia)
 
     private val lock = Any()
     /** Missing index is a normal empty Studio; unreadable index must not masquerade as one. */
@@ -151,12 +156,15 @@ class ProjectStore internal constructor(private val file: File) {
                 firstFrameAssetId = shot.firstFrameAssetId?.takeIf { it in assetIds },
                 lastFrameAssetId = shot.lastFrameAssetId?.takeIf { it in assetIds },
                 workflowPath = shot.workflowPath,
+                stageWorkflowPaths = shot.stageWorkflowPaths,
+                stageDrafts = shot.stageDrafts,
                 providerId = shot.providerId,
                 workflowId = shot.workflowId,
                 values = shot.values,
                 createdAt = now, updatedAt = now,
             )
         }
+        val shotIds = source.shots.zip(shots).associate { (original, duplicate) -> original.id to duplicate.id }
         val copy = source.copy(
             id = UUID.randomUUID().toString(),
             title = source.title + " (copy)",
@@ -170,7 +178,11 @@ class ProjectStore internal constructor(private val file: File) {
                     createdAt = now,
                 )
             },
-            stageMediaBindings = source.stageMediaBindings.filter { it.assetId in assetIds },
+            stageMediaBindings = source.stageMediaBindings.mapNotNull { binding ->
+                if (binding.assetId !in assetIds) return@mapNotNull null
+                val id = binding.shotId?.let { shotIds[it] ?: return@mapNotNull null }
+                binding.copy(shotId = id)
+            },
             timeline = null,
             createdAt = now, updatedAt = now,
         )
@@ -223,12 +235,69 @@ class ProjectStore internal constructor(private val file: File) {
     fun setStageWorkflow(projectId: String, kind: String, workflowPath: String): Boolean {
         if (!StudioWorkflowRecipes.isModelKind(kind)) return false
         return update(projectId) { project ->
-            project.copy(
+            val updated = project.copy(
                 stageWorkflowPaths = if (workflowPath.isBlank()) project.stageWorkflowPaths - kind
                     else project.stageWorkflowPaths + (kind to workflowPath),
                 updatedAt = System.currentTimeMillis(),
             )
+            if (kind == "video") preserveInheritedVideoDrafts(project, updated) else updated
         }
+    }
+
+    fun setShotVideoWorkflow(
+        projectId: String,
+        shotId: String,
+        path: String?,
+        providerId: String?,
+        workflowId: String?,
+    ): Boolean = update(projectId) { project ->
+        val now = System.currentTimeMillis()
+        project.copy(
+            shots = project.shots.map { shot ->
+                if (shot.id != shotId || shot.status == "running") return@map shot
+                val previousPath = StudioWorkflowRecipes.workflowPath(project, "video", shot)
+                val updated = shot.copy(
+                    workflowPath = path, providerId = providerId, workflowId = workflowId, updatedAt = now,
+                )
+                if (previousPath == StudioWorkflowRecipes.workflowPath(project, "video", updated)) updated
+                else archiveLegacyVideoValues(updated, previousPath)
+            },
+            updatedAt = now,
+        )
+    }
+
+    fun saveShotDraft(
+        projectId: String,
+        shotId: String,
+        draft: StudioStageDraft,
+        providerId: String,
+        workflowId: String,
+    ): Boolean = synchronized(lock) {
+        if (!StudioWorkflowRecipes.isModelKind(draft.kind) || draft.workflowPath.isBlank()) return@synchronized false
+        var saved = false
+        val now = System.currentTimeMillis()
+        val persisted = updateLocked(projectId) { project ->
+            val shots = project.shots.map { shot ->
+                if (shot.id != shotId || shot.status == "running") return@map shot
+                val selection = StudioWorkflowRecipes.workflowPath(project, draft.kind, shot)
+                val current = if (draft.kind == "video" && selection != draft.workflowPath)
+                    archiveLegacyVideoValues(shot, selection) else shot
+                val drafts = current.stageDrafts.filterNot {
+                    it.kind == draft.kind && it.workflowPath == draft.workflowPath
+                } + draft
+                val updated = current.copy(stageDrafts = drafts, updatedAt = now)
+                saved = true
+                when {
+                    selection == draft.workflowPath -> updated
+                    draft.kind == "video" -> updated.copy(
+                        workflowPath = draft.workflowPath, providerId = providerId, workflowId = workflowId,
+                    )
+                    else -> updated.copy(stageWorkflowPaths = updated.stageWorkflowPaths + (draft.kind to draft.workflowPath))
+                }
+            }
+            if (saved) project.copy(shots = shots, updatedAt = now) else project
+        }
+        saved && persisted
     }
 
     /**
@@ -240,20 +309,23 @@ class ProjectStore internal constructor(private val file: File) {
         workflowPath: String,
         fieldName: String,
         assetId: String?,
+        shotId: String? = null,
     ): Boolean = synchronized(lock) {
         if (workflowPath.isBlank() || fieldName.isBlank()) return@synchronized false
         var valid = true
         val persisted = updateLocked(projectId) { project ->
-            if (assetId != null && project.assets.none { it.id == assetId }) {
+            if ((assetId != null && project.assets.none { it.id == assetId }) ||
+                (shotId != null && project.shots.none { it.id == shotId })
+            ) {
                 valid = false
                 return@updateLocked project
             }
             val retained = project.stageMediaBindings.filterNot {
-                it.workflowPath == workflowPath && it.fieldName == fieldName
+                it.workflowPath == workflowPath && it.fieldName == fieldName && it.shotId == shotId
             }
             project.copy(
                 stageMediaBindings = if (assetId == null) retained
-                    else retained + StudioStageMediaBinding(workflowPath, fieldName, assetId),
+                    else retained + StudioStageMediaBinding(workflowPath, fieldName, assetId, shotId),
                 updatedAt = System.currentTimeMillis(),
             )
         }
@@ -282,8 +354,7 @@ class ProjectStore internal constructor(private val file: File) {
         updateBudget: Boolean = budget != null,
     ): Boolean = update(projectId) { project ->
         val path = workflowPath.trim()
-        val workflowChanged = project.workflowPath != path
-        project.copy(
+        val updated = project.copy(
             title = title.trim().ifBlank { "Project" },
             synopsis = synopsis.trim(),
             workflowId = if (path.isBlank()) "" else path.substringAfter(':'),
@@ -293,17 +364,27 @@ class ProjectStore internal constructor(private val file: File) {
             defaultValues = defaultValues,
             targetDurationSeconds = targetDurationSeconds?.takeIf { it > 0 },
             budget = if (updateBudget) budget?.takeIf { it.isFinite() && it > 0.0 } else project.budget,
-            shots = if (workflowChanged) {
-                // Explicit per-shot provider/model overrides are independent of the project default.
-                // Only inherited fields are reset when the default workflow changes.
-                project.shots.map { shot ->
-                    if (shot.workflowPath.isNullOrBlank()) shot.copy(values = emptyMap()) else shot
-                }
-            } else {
-                project.shots
-            },
             updatedAt = System.currentTimeMillis(),
         )
+        preserveInheritedVideoDrafts(project, updated)
+    }
+
+    private fun preserveInheritedVideoDrafts(previous: VideoProject, updated: VideoProject): VideoProject {
+        val path = StudioWorkflowRecipes.workflowPath(previous, "video")
+        if (path == StudioWorkflowRecipes.workflowPath(updated, "video")) return updated
+        return updated.copy(shots = updated.shots.map { shot ->
+            if (shot.workflowPath.isNullOrBlank() && shot.workflowId.isNullOrBlank()) {
+                archiveLegacyVideoValues(shot, path)
+            } else shot
+        })
+    }
+
+    private fun archiveLegacyVideoValues(shot: ProjectShot, previousPath: String?): ProjectShot {
+        if (shot.values.isEmpty()) return shot
+        val drafts = if (previousPath != null && shot.stageDraft("video", previousPath) == null) {
+            shot.stageDrafts + StudioStageDraft("video", previousPath, shot.values)
+        } else shot.stageDrafts
+        return shot.copy(stageDrafts = drafts, values = emptyMap())
     }
 
     fun addShot(projectId: String, prompt: String, cameraNotes: String? = null): ProjectShot? =
@@ -401,6 +482,8 @@ class ProjectStore internal constructor(private val file: File) {
             val shots = project.shots.toMutableList().apply { add(index + 1, copy) }
             project.copy(
                 shots = rebaseAutoReferences(shots, project.chainFrames),
+                stageMediaBindings = project.stageMediaBindings +
+                    project.stageMediaBindings.filter { it.shotId == shotId }.map { it.copy(shotId = copy.id) },
                 updatedAt = System.currentTimeMillis(),
             )
         }
@@ -463,13 +546,17 @@ class ProjectStore internal constructor(private val file: File) {
                 // relay or turn the automatic reference into a manual empty one.
                 val referencedByAutoChain = referencedByPath &&
                     !shot.referenceManual && shot.referenceAssetIds.isEmpty()
-                if (!referencedById && (!referencedByPath || referencedByAutoChain)) return@map shot
+                val clearedFrames = shot.copy(
+                    firstFrameAssetId = shot.firstFrameAssetId?.takeUnless { it == assetId },
+                    lastFrameAssetId = shot.lastFrameAssetId?.takeUnless { it == assetId },
+                )
+                if (!referencedById && (!referencedByPath || referencedByAutoChain)) return@map clearedFrames
 
                 val ids = shot.referenceAssetIds - assetId
                 val nextAsset = ids.firstNotNullOfOrNull { id ->
                     remaining.firstOrNull { it.id == id }
                 }
-                shot.copy(
+                clearedFrames.copy(
                     referenceAssetIds = ids,
                     referencePath = when {
                         !referencedByPath -> shot.referencePath
@@ -572,6 +659,7 @@ class ProjectStore internal constructor(private val file: File) {
             val remaining = project.shots.toMutableList().apply { removeAt(index) }
             project.copy(
                 shots = rebaseAutoReferences(remaining, project.chainFrames),
+                stageMediaBindings = project.stageMediaBindings.filterNot { it.shotId == shotId },
                 updatedAt = System.currentTimeMillis(),
             )
         }
@@ -630,16 +718,26 @@ class ProjectStore internal constructor(private val file: File) {
      * The underlying HistoryStore's referenced-path guard keeps the media alive
      * while this Take refers to it. Repeated actions are idempotent by media path.
      */
-    fun attachExistingTake(projectId: String, shotId: String, source: ShotTake): Boolean =
+    fun attachExistingTake(
+        projectId: String,
+        shotId: String,
+        source: ShotTake,
+        timelineClip: TimelineClip? = null,
+    ): Boolean =
         synchronized(lock) {
             val path = source.resultPath
             if (source.status != "done" || path.isNullOrBlank()) return@synchronized false
+            if (timelineClip != null && (timelineClip.sourcePath != path || timelineClip.durationMs <= 0)) {
+                return@synchronized false
+            }
             var added = false
             val persisted = updateLocked(projectId) { project ->
                 val shots = project.shots.map { shot ->
-                    if (shot.id != shotId || shot.status == "running" ||
-                        shot.takes.any { it.resultPath == path }) return@map shot
+                    if (shot.id != shotId || shot.status == "running") return@map shot
+                    val alreadyLinked = shot.takes.any { it.resultPath == path }
+                    if (alreadyLinked && timelineClip == null) return@map shot
                     added = true
+                    if (alreadyLinked) return@map shot
                     shot.copy(takes = shot.takes + source.copy(
                         id = UUID.randomUUID().toString(),
                         status = "done",
@@ -647,9 +745,40 @@ class ProjectStore internal constructor(private val file: File) {
                         createdAt = System.currentTimeMillis(),
                     ))
                 }
-                project.copy(shots = shots, updatedAt = System.currentTimeMillis())
+                if (!added) return@updateLocked project
+                project.copy(
+                    shots = shots,
+                    timeline = timelineClip?.let { clip ->
+                        (project.timeline ?: Timeline()).withTrack(TrackKind.VIDEO) { it + clip }
+                    } ?: project.timeline,
+                    updatedAt = System.currentTimeMillis(),
+                )
             }
             added && persisted
+        }
+
+    /** Adopts an already stored image for a shot and writes both links together. */
+    fun attachExistingFrame(projectId: String, shotId: String, asset: ProjectAsset, first: Boolean): Boolean =
+        synchronized(lock) {
+            if (asset.kind != AssetKind.IMAGE || asset.path.isBlank()) return@synchronized false
+            var linked = false
+            val persisted = updateLocked(projectId) { project ->
+                val selected = project.shots.firstOrNull { it.id == shotId && it.status != "running" }
+                    ?: return@updateLocked project
+                val existing = project.assets.firstOrNull { it.path == asset.path && it.role == asset.role }
+                val id = (existing ?: asset).id
+                linked = true
+                project.copy(
+                    assets = if (existing != null) project.assets else project.assets + asset,
+                    shots = project.shots.map { shot ->
+                        if (shot.id != selected.id) shot
+                        else if (first) shot.copy(firstFrameAssetId = id)
+                        else shot.copy(lastFrameAssetId = id)
+                    },
+                    updatedAt = System.currentTimeMillis(),
+                )
+            }
+            linked && persisted
         }
 
     /** Marks the shot done and closes the matching running take with the result. */
@@ -1085,7 +1214,7 @@ class ProjectStore internal constructor(private val file: File) {
                 }
             }.toSet()
         } else emptySet()
-        val referenced = referencedMediaPaths() + legacyRefs
+        val referenced = referencedMediaPaths() + legacyRefs + protectedMedia()
         val cutoff = System.currentTimeMillis() - MEDIA_GC_GRACE_MS
         mediaDir.walkTopDown().filter { it.isFile }.forEach { candidate ->
             if (candidate.absolutePath !in referenced && candidate.lastModified() < cutoff) {

@@ -70,6 +70,10 @@ class HistoryStoreTest {
         val recent = File(dir, "project-export-1760000000001_0.mp4.tmp").apply {
             writeText("in-progress")
         }
+        val oldForeground = File(dir, "project-export-f4a5bf7d-c881-4fff-84b6-ca68e67b17cd_0.mp4.tmp").apply {
+            writeText("interrupted foreground export")
+            setLastModified(System.currentTimeMillis() - 60 * 60_000L)
+        }
         val unrelated = File(dir, "unrelated-file.mp4.tmp").apply {
             writeText("keep")
             setLastModified(System.currentTimeMillis() - 60 * 60_000L)
@@ -80,6 +84,7 @@ class HistoryStoreTest {
         }
         HistoryStore(dir)
         assertFalse(old.exists())
+        assertFalse(oldForeground.exists())
         assertTrue(recent.exists())
         assertTrue(unrelated.exists())
         assertTrue(completed.exists())

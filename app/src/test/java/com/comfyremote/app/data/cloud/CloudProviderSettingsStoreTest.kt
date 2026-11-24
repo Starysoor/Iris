@@ -94,27 +94,46 @@ class CloudProviderSettingsStoreTest {
         val store = CloudProviderSettingsStore(MemoryPrefs(), MemoryVault())
         var calls = 0
 
-        val first = pulledModels(store, "openai", "https://api.openai.com/v1", "token") {
+        val base = "https://api.openai.com/v1"
+        val first = modelDirectory(store, store.account("openai", base), force = false) {
             calls++
-            listOf("gpt-image-2.5", "dall-e-3")
+            listOf(CloudModelMetadata("gpt-image-2.5", "GPT Image 2.5"), CloudModelMetadata("dall-e-3"))
         }
-        val second = pulledModels(store, "openai", "https://api.openai.com/v1", "token") {
+        val second = modelDirectory(store, store.account("openai", base), force = false) {
             calls++
-            listOf("should-not-be-used")
+            error("Should use the saved catalogue")
         }
 
-        assertEquals(listOf("gpt-image-2.5", "dall-e-3"), first)
-        assertEquals(listOf("gpt-image-2.5", "dall-e-3"), second)
+        assertEquals(listOf("gpt-image-2.5", "dall-e-3"), first.map { it.id })
+        assertEquals(first, second)
         assertEquals(1, calls)
 
-        store.save("openai", "https://api.openai.com/v1", "token", emptyList())
-        val third = pulledModels(store, "openai", "https://api.openai.com/v1", "token") {
+        store.save("openai", base, "token", emptyList())
+        val third = modelDirectory(store, store.account("openai", base), force = true) {
             calls++
-            listOf("should-not-be-used")
+            error("An explicit empty list stays empty")
         }
 
         assertTrue(third.isEmpty())
         assertEquals(1, calls)
+    }
+
+    @Test
+    fun refreshedDirectoryRetainsManualChoicesAndRemovesRetiredDiscoveredModels() = runBlocking {
+        val store = CloudProviderSettingsStore(MemoryPrefs(), MemoryVault())
+        val base = "https://provider.example/v1"
+        modelDirectory(store, store.account("p", base), force = false) {
+            listOf(CloudModelMetadata("retired"), CloudModelMetadata("still-there"))
+        }
+        store.save("p", base, "", listOf("retired", "still-there", "manual"))
+        store.setModelEnabled("p", "still-there", enabled = false)
+        val refreshed = modelDirectory(store, store.account("p", base), force = true) {
+            listOf(CloudModelMetadata("still-there"), CloudModelMetadata("new", "New variant", "Official summary", "video"))
+        }
+        assertEquals(listOf("manual", "new"), refreshed.map { it.id })
+        assertEquals("Official summary", refreshed.last().description)
+        assertEquals("video", refreshed.last().kind)
+        assertEquals(listOf("still-there", "manual", "new"), store.account("p", base).models)
     }
 
     private class MemoryVault : SecretVault {

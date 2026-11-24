@@ -19,11 +19,14 @@ import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
+import androidx.compose.material.icons.outlined.Refresh
 import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.ExperimentalMaterial3Api
+import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.SnackbarHostState
@@ -38,10 +41,12 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.platform.LocalContext
+import androidx.compose.ui.platform.LocalUriHandler
 import androidx.compose.ui.res.stringResource
 import androidx.core.content.FileProvider
 import com.comfyremote.app.FieldKind
 import com.comfyremote.app.R
+import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.ui.LocalAppSettings
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.BannerTone
@@ -65,7 +70,7 @@ fun GenerateScreen(
     onBack: () -> Unit,
     onOpenTask: (String) -> Unit,
     onOpenCloudVideo: (String, String) -> Unit,
-    onOpenProject: (String) -> Unit,
+    onOpenProject: (String, String?) -> Unit,
 ) {
     val state by viewModel.state.collectAsState()
     val linkedShot by viewModel.linkedShot.collectAsState()
@@ -79,6 +84,7 @@ fun GenerateScreen(
     val results = task?.results.orEmpty()
     val visibleResults = results.takeLast(2)
     val context = LocalContext.current
+    val uriHandler = LocalUriHandler.current
     val snackbar = remember { SnackbarHostState() }
 
     LaunchedEffect(workflowPath, workflowName) { viewModel.loadWorkflow(workflowPath, workflowName) }
@@ -92,7 +98,7 @@ fun GenerateScreen(
     }
 
     var pendingField by remember { mutableStateOf<String?>(null) }
-    var pendingAudioField by remember { mutableStateOf<String?>(null) }
+    var pendingMediaField by remember { mutableStateOf<String?>(null) }
     var audioPreview by remember { mutableStateOf<String?>(null) }
     var cameraUri by remember { mutableStateOf<Uri?>(null) }
     val picker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
@@ -100,10 +106,10 @@ fun GenerateScreen(
         pendingField = null
         if (uri != null && key != null) viewModel.uploadImage(key, uri)
     }
-    val audioPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val key = pendingAudioField
-        pendingAudioField = null
-        if (uri != null && key != null) viewModel.uploadAudio(key, uri)
+    val mediaPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
+        val key = pendingMediaField
+        pendingMediaField = null
+        if (uri != null && key != null) viewModel.uploadTimedMedia(key, uri)
     }
     val multiPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetMultipleContents()) { uris ->
         if (uris.isNotEmpty()) viewModel.uploadImagesBatch(uris)
@@ -152,6 +158,11 @@ fun GenerateScreen(
                 subtitleColor = MaterialTheme.colorScheme.secondary,
                 actions = {
                     if (draft != null) {
+                        if (!draft.isCloud) {
+                            IconButton(onClick = viewModel::refreshLocalDefinition, enabled = !running) {
+                                Icon(Icons.Outlined.Refresh, stringResource(R.string.gen_refresh_definition))
+                            }
+                        }
                         TextAction(stringResource(R.string.gen_defaults), viewModel::resetRememberedDraft, enabled = !running)
                     }
                     task?.let { t -> TextAction(stringResource(R.string.gen_task), { onOpenTask(t.taskId) }) }
@@ -192,6 +203,7 @@ fun GenerateScreen(
             else -> {
                 val imageFields = draft.fields.filter { it.kind == FieldKind.IMAGE }
                 val audioFields = draft.fields.filter { it.kind == FieldKind.AUDIO }
+                val videoFields = draft.fields.filter { it.kind == FieldKind.VIDEO }
                 val textFields = draft.fields.filter { it.kind == FieldKind.TEXT }
                 val seedFields = draft.fields.filter { it.kind == FieldKind.SEED }
                 val paramFields = draft.fields.filter { it.kind == FieldKind.PARAM }
@@ -222,9 +234,12 @@ fun GenerateScreen(
                                 text = stringResource(R.string.studio_linked_detail),
                                 tone = BannerTone.Info,
                                 actionLabel = stringResource(R.string.studio_back_to_project),
-                                onAction = { onOpenProject(linked.projectId) },
+                                onAction = { onOpenProject(linked.projectId, linked.shotId) },
                             )
                             if (!running) {
+                                if (linked.shotId != null) {
+                                    TextAction(stringResource(R.string.studio_save_shot_draft), viewModel::saveDraftToShot)
+                                }
                                 TextButton(onClick = { viewModel.linkCurrentDraft(null, null) }) {
                                     Text(stringResource(R.string.studio_link_unlink))
                                 }
@@ -259,6 +274,11 @@ fun GenerateScreen(
                     if (draft.notes.isNotEmpty()) item("notes") {
                         WorkflowNotesCard(draft.notes, notesOpen) { notesOpen = !notesOpen }
                     }
+                    draft.cloud?.referenceUrl?.takeIf { it.startsWith("https://") }?.let { url ->
+                        item("provider-reference") {
+                            TextAction(stringResource(R.string.gen_provider_reference), onClick = { uriHandler.openUri(url) })
+                        }
+                    }
                     task?.preview?.let { preview -> item("preview") { LivePreview(preview) } }
 
                     item("prompt-header") {
@@ -280,6 +300,13 @@ fun GenerateScreen(
                             onValueChange = { viewModel.updateValue(field.key, it) },
                             onSkill = { skill -> viewModel.aiExpand(field.key, draft.values[field.key] ?: field.value, skill) },
                         )
+                    }
+
+                    val modelFields = if (draft.isCloud) emptyList() else paramFields.filter {
+                        WorkflowInsights.isModelSelection(it) || it.input in setOf("sampler_name", "scheduler")
+                    }
+                    if (modelFields.isNotEmpty()) item("model-parameters") {
+                        ModelParametersCard(modelFields, draft.values, viewModel::updateValue)
                     }
 
                     if (imageFields.isNotEmpty()) {
@@ -312,17 +339,26 @@ fun GenerateScreen(
                         }
                     }
 
-                    if (audioFields.isNotEmpty()) {
-                        item("audio-header") { SectionHeader(stringResource(R.string.gen_audio_references)) }
-                        items(audioFields, key = { it.key }) { field ->
-                            AudioReferenceField(
-                                label = field.label,
+                    for ((header, fields) in listOf(
+                        R.string.gen_audio_references to audioFields,
+                        R.string.gen_video_references to videoFields,
+                    )) {
+                        if (fields.isEmpty()) continue
+                        item(header) { SectionHeader(stringResource(header)) }
+                        items(fields, key = { it.key }) { field ->
+                            TimedMediaReferenceField(
+                                field = field,
                                 value = draft.values[field.key] ?: field.value,
+                                cloud = draft.isCloud,
+                                formats = draft.cloud?.rule(field.input)?.acceptedMediaTypes.orEmpty(),
                                 upload = state.uploads[field.key],
                                 running = running,
                                 onPreview = { audioPreview = it },
-                                onClear = { viewModel.updateValue(field.key, "") },
-                                onPick = { pendingAudioField = field.key; audioPicker.launch("audio/*") },
+                                onChange = { viewModel.updateValue(field.key, it) },
+                                onPick = {
+                                    pendingMediaField = field.key
+                                    mediaPicker.launch("${field.kind.mediaType}/*")
+                                },
                             )
                         }
                     }
@@ -343,9 +379,10 @@ fun GenerateScreen(
                         )
                     }
 
-                    if (paramFields.isNotEmpty()) item("advanced") {
+                    val advancedFields = paramFields - modelFields.toSet()
+                    if (advancedFields.isNotEmpty()) item("advanced") {
                         AdvancedParamsCard(
-                            fields = paramFields,
+                            fields = advancedFields,
                             values = draft.values,
                             expanded = advancedOpen,
                             onToggle = { advancedOpen = !advancedOpen },
@@ -398,7 +435,7 @@ fun GenerateScreen(
                             viewModel.linkCurrentDraft(selectedProject.id, null)
                             linkPickerOpen = false
                         }) { Text(stringResource(R.string.studio_link_project_level)) }
-                        if (draft?.cloud?.kind == "video") {
+                        if (draft?.studioLinkableKind != null) {
                             selectedProject.shots.forEachIndexed { index, shot ->
                                 TextButton(
                                     onClick = {

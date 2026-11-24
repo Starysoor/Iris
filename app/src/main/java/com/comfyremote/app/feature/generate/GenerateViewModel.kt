@@ -2,6 +2,7 @@ package com.comfyremote.app.feature.generate
 
 import android.graphics.Bitmap
 import android.net.Uri
+import androidx.lifecycle.SavedStateHandle
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.comfyremote.app.AiImagePayload
@@ -25,20 +26,25 @@ import com.comfyremote.app.data.cloud.CloudInputStore
 import com.comfyremote.app.data.cloud.CloudWorkflowMapping
 import com.comfyremote.app.data.cloud.CloudWorkflowSpec
 import com.comfyremote.app.data.generation.GenerationPhase
-import com.comfyremote.app.data.project.BudgetGate
 import com.comfyremote.app.data.project.ShotTake
-import com.comfyremote.app.data.project.taskCostStats
+import com.comfyremote.app.data.project.StudioStageDraft
+import com.comfyremote.app.data.project.StudioStageMediaBindings
+import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.generation.GenerationRequest
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.media.ImagePreprocessor
 import com.comfyremote.app.data.media.BoundedMediaInput
 import com.comfyremote.app.data.media.GallerySaveFeedback
+import com.comfyremote.app.data.media.MediaTypeResolver
 import com.comfyremote.app.data.media.decodeSampled
 import com.comfyremote.app.data.repository.DraftTransfer
+import com.comfyremote.app.data.repository.LocalWorkflowReference
+import com.comfyremote.app.data.reference.ReferenceRole
 import com.comfyremote.app.data.repository.PromptPreset
 import com.comfyremote.app.data.repository.WorkflowInsight
 import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.R
+import com.comfyremote.app.invalidPromptImageNames
 import com.comfyremote.app.ui.AppStrings
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -68,8 +74,14 @@ data class WorkflowDraft(
     val cloudBaseUrl: String? = null,
     /** The provider whose credential billed this workflow. */
     val cloudProviderLabel: String = "",
+    val localServerUrl: String = "",
+    val outputKinds: Set<String> = emptySet(),
 ) {
     val isCloud: Boolean get() = cloud != null
+    val studioLinkableKind: String?
+        get() = if ("video" in outputKinds) "video" else outputKinds.singleOrNull()?.takeIf {
+            it == "image" || it == "audio"
+        }
 
     /** Drafts are scoped per server; cloud drafts use a stable provider+endpoint key. */
     val storageServerUrl: String
@@ -149,9 +161,13 @@ data class LinkedStudioShot(
     val projectId: String,
     val projectTitle: String,
     val shotNumber: Int,
+    val shotId: String? = null,
 )
 
-class GenerateViewModel(private val container: AppContainer) : ViewModel() {
+class GenerateViewModel(
+    private val container: AppContainer,
+    private val savedState: SavedStateHandle = SavedStateHandle(),
+) : ViewModel() {
     private val _linkedShot = MutableStateFlow<LinkedStudioShot?>(null)
     val linkedShot: StateFlow<LinkedStudioShot?> = _linkedShot.asStateFlow()
     val projects = container.projectStore.projects
@@ -175,6 +191,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     private var submitJob: Job? = null
     private var pendingStoryboardProjectId: String? = null
     private var pendingStoryboardShotId: String? = null
+    private var pendingStudioStageKind: String? = null
     private val storyboardReferenceValuesAtLoad = mutableMapOf<String, String>()
     /** Prevent a missing/failed explicit stage input from silently becoming a paid request. */
     private val failedMappedFieldKeys = mutableSetOf<String>()
@@ -206,6 +223,15 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             container.generationManager.tasks.collect { list ->
                 val activeId = _state.value.activeTaskId ?: return@collect
                 val task = list.firstOrNull { it.taskId == activeId } ?: return@collect
+                if (task.error?.kind == com.comfyremote.app.data.generation.ErrorKind.PROMPT_VALIDATION) {
+                    val draft = _state.value.draft
+                    if (draft?.workflowPath == task.request.workflowPath) {
+                        imageValidationFields(task, draft).forEach { (field, name) ->
+                            setUpload(field.key, ImageUploadStatus(ImageUploadPhase.FAILED,
+                                AppStrings.get(R.string.gen_image_missing, field.label, name)))
+                        }
+                    }
+                }
                 if (task.phase == GenerationPhase.SUCCEEDED && task.seedValues.isNotEmpty() && appliedSeedTasks.add(task.taskId)) {
                     updateDraft { draft ->
                         if (draft.workflowPath == task.request.workflowPath) {
@@ -233,23 +259,33 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         loadedPath = path
         pendingStoryboardProjectId = null
         pendingStoryboardShotId = null
+        pendingStudioStageKind = null
         _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
         failedMappedFieldKeys.clear()
-        _state.update { it.copy(loading = true, error = null, draft = null, insight = null) }
+        _state.update { it.copy(loading = true, error = null, draft = null, insight = null, uploads = emptyMap()) }
         viewModelScope.launch {
             runCatching { buildDraft(path, name) }
                 .onSuccess { (baseDraft, conv) ->
                     if (generation != workflowLoadGeneration) return@onSuccess
                     converted = conv
-                    val transfer = container.draftTransferRepository.consume(path)
+                    val queued = container.draftTransferRepository.consume(path)
+                    val hasSavedStudioLink = savedState.get<String>("studio-path") == path &&
+                        savedState.get<String>("studio-project") != null
+                    val transfer = queued ?: if (hasSavedStudioLink) restoreStudioDraft(path, name) else null
+                    if (hasSavedStudioLink && transfer == null) {
+                        _state.update { it.copy(loading = false, error = AppStrings.get(R.string.studio_binding_stale)) }
+                        return@onSuccess
+                    }
                     pendingStoryboardProjectId = transfer?.storyboardProjectId
                     pendingStoryboardShotId = transfer?.storyboardShotId
+                    pendingStudioStageKind = transfer?.studioStageKind
+                    saveStudioLink(path)
                     _linkedShot.value = transfer?.storyboardProjectId?.let { projectId ->
                         container.projectStore.project(projectId)?.let { project ->
                             val index = project.shots.indexOfFirst { it.id == transfer.storyboardShotId }
                             // A workflow-recipe stage belongs to a project even without a Shot.
-                            LinkedStudioShot(projectId, project.title, if (index >= 0) index + 1 else 0)
+                            LinkedStudioShot(projectId, project.title, if (index >= 0) index + 1 else 0, transfer.storyboardShotId)
                         }
                     }
                     val storyboard = pendingStoryboardProjectId != null && pendingStoryboardShotId != null
@@ -279,8 +315,19 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                             AppStrings.get(R.string.gen_vm_reuse_partial, mapped.values.size, transfer.values.size)
                         else -> null
                     }
+                    val values = (mapped?.values ?: transfer?.values ?: remembered?.values.orEmpty()).toMutableMap()
+                    if (storyboard) values.keys.retainAll(baseDraft.fields.mapTo(hashSetOf(), PromptField::key))
+                    transfer?.studioPrompt?.let { prompt ->
+                        val textFields = baseDraft.fields.filter { it.kind == FieldKind.TEXT && !it.looksLikeNegativePrompt() }
+                        val field = textFields.firstOrNull { it.input == "prompt" }
+                            ?: textFields.firstOrNull { it.multiline }
+                            ?: textFields.singleOrNull()
+                        field?.let {
+                            if (!transfer.restoreStudioPrompt || it.key !in values) values[it.key] = prompt
+                        }
+                    }
                     val draft = baseDraft.copy(
-                        values = mapped?.values ?: transfer?.values ?: remembered?.values.orEmpty(),
+                        values = values,
                         randomSeed = transfer?.randomSeed ?: remembered?.randomSeed
                             ?: container.appSettingsStore.settings.value.defaultRandomSeed,
                     )
@@ -297,16 +344,36 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                             message = reuseMessage,
                         )
                     }
-                    val exactFields = transfer?.referenceFieldPaths.orEmpty()
+                    val exactFields = transfer?.referenceFieldPaths.orEmpty().toMutableMap()
                     val multipleReferences = transfer?.referenceLocalPaths.orEmpty()
                         .filter(String::isNotBlank)
-                    if (exactFields.isNotEmpty()) {
-                        applyFieldReferencePaths(exactFields, initial = storyboard, generation = generation)
-                    } else if (multipleReferences.isNotEmpty()) {
-                        applyReferencePaths(multipleReferences, initial = storyboard)
-                    } else {
-                        transfer?.referenceLocalPath?.takeIf(String::isNotBlank)?.let { reference ->
-                            useLocalResultAsReference(reference, initial = storyboard)
+                    transfer?.referenceRolePaths.orEmpty().forEach { (role, path) ->
+                        val imageFields = draft.fields.filter { it.kind == FieldKind.IMAGE }
+                        val field = imageFields.firstOrNull { it.referenceRole == role }
+                            ?: if (role == ReferenceRole.START_FRAME) {
+                                imageFields.singleOrNull { it.referenceRole != ReferenceRole.END_FRAME }
+                            } else null
+                        if (field != null) exactFields.putIfAbsent(field.key, path)
+                        else {
+                            failedMappedFieldKeys += role.name
+                            _state.update { it.copy(message = AppStrings.get(R.string.studio_binding_missing_role, role.name)) }
+                        }
+                    }
+                    val freeImages = draft.fields.filter { it.kind == FieldKind.IMAGE && it.key !in exactFields }
+                    val remaining = multipleReferences.filterNot { it in exactFields.values }
+                    if (remaining.size > freeImages.size && transfer?.studioStageKind != null) {
+                        failedMappedFieldKeys += "references"
+                        _state.update { it.copy(message = AppStrings.get(
+                            R.string.studio_binding_reference_overflow, remaining.size, freeImages.size,
+                        )) }
+                    } else if (failedMappedFieldKeys.isEmpty()) {
+                        freeImages.zip(remaining).forEach { (field, path) -> exactFields[field.key] = path }
+                        if (exactFields.isNotEmpty()) {
+                            applyFieldReferencePaths(exactFields, initial = storyboard, generation = generation)
+                        } else {
+                            transfer?.referenceLocalPath?.takeIf(String::isNotBlank)?.let { reference ->
+                                useLocalResultAsReference(reference, initial = storyboard)
+                            }
                         }
                     }
                     consumeIncomingMedia()
@@ -318,10 +385,32 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
+    private fun saveStudioLink(path: String) {
+        savedState["studio-path"] = path
+        savedState["studio-project"] = pendingStoryboardProjectId
+        savedState["studio-shot"] = pendingStoryboardShotId
+        savedState["studio-stage"] = pendingStudioStageKind
+    }
+
+    private fun restoreStudioDraft(path: String, name: String): DraftTransfer? {
+        val projectId = savedState.get<String>("studio-project") ?: return null
+        val project = container.projectStore.project(projectId) ?: return null
+        val shotId = savedState.get<String>("studio-shot")
+        val kind = savedState.get<String>("studio-stage")
+        val bindings = StudioStageMediaBindings.effective(project.stageMediaBindings, path, shotId)
+        val fieldPaths = StudioStageMediaBindings.localPaths(bindings, project.assets) { File(it).canRead() }
+            ?: return null
+        val shot = shotId?.let { id -> project.shots.firstOrNull { it.id == id } ?: return null }
+        if (shot != null) return StudioWorkflowRecipes.shotTransfer(project, shot, kind ?: "video", path, name, fieldPaths)
+        return DraftTransfer(
+            workflowPath = path, workflowName = name,
+            values = project.defaultValues.takeIf { project.workflowPath == path }.orEmpty(),
+            randomSeed = true, storyboardProjectId = projectId, studioStageKind = kind, referenceFieldPaths = fieldPaths,
+        )
+    }
+
     /**
-     * Optional Create→Studio association. Provider image/audio/local custom workflows
-     * may be linked to a project, but only catalog-confirmed video workflows may
-     * bind directly to a Shot; other media must flow through Results verification.
+     * Optional Create→Studio association. A shot stage requires a known output type.
      */
     fun linkCurrentDraft(projectId: String?, shotId: String?) {
         val draft = _state.value.draft ?: return
@@ -330,24 +419,40 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         if (projectId == null) {
             pendingStoryboardProjectId = null
             pendingStoryboardShotId = null
+            pendingStudioStageKind = null
             _linkedShot.value = null
+            saveStudioLink(draft.workflowPath)
             failedMappedFieldKeys.clear()
             _state.update { it.copy(storyboardShot = false) }
             return
         }
         val project = container.projectStore.project(projectId) ?: return
         val index = if (shotId != null) project.shots.indexOfFirst { it.id == shotId } else -1
-        if (shotId != null && (draft.cloud?.kind != "video" || index < 0 ||
+        val stage = draft.studioLinkableKind
+        if (shotId != null && (stage == null || index < 0 ||
                 project.shots[index].status == "running")) {
             _state.update { it.copy(message = AppStrings.get(R.string.board_err_choose_workflow)) }
             return
         }
         pendingStoryboardProjectId = projectId
         pendingStoryboardShotId = shotId
-        _linkedShot.value = LinkedStudioShot(projectId, project.title, index + 1)
+        pendingStudioStageKind = if (shotId == null) null else stage
+        saveStudioLink(draft.workflowPath)
+        _linkedShot.value = LinkedStudioShot(projectId, project.title, index + 1, shotId)
         _state.update { current ->
             current.copy(storyboardShot = shotId != null,
                 batchCount = if (shotId != null) 1 else current.batchCount)
+        }
+    }
+
+    fun saveDraftToShot() {
+        val draft = _state.value.draft ?: return
+        val linked = _linkedShot.value ?: return
+        val shotId = linked.shotId ?: return
+        val stage = pendingStudioStageKind ?: draft.studioLinkableKind ?: return
+        val saved = saveShotParameters(linked.projectId, shotId, stage, draft)
+        _state.update {
+            it.copy(message = AppStrings.get(if (saved) R.string.studio_shot_draft_saved else R.string.board_err_persist))
         }
     }
 
@@ -369,6 +474,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             val notes = listOf(
                 spec.name,
                 AppStrings.get(R.string.gen_workflow_id, spec.id),
+                spec.version.takeIf(String::isNotBlank)?.let { AppStrings.get(R.string.gen_workflow_version, it) },
                 spec.description,
                 spec.content,
                 AppStrings.get(R.string.gen_vm_cloud_note, cloudProvider.label),
@@ -377,7 +483,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 } else {
                     null
                 },
-            ).filterNotNull().filter(String::isNotBlank)
+            ).filterNotNull().filter(String::isNotBlank).distinct()
             val prompt = spec.toJson()
             return WorkflowDraft(
                 workflowPath = path,
@@ -388,8 +494,10 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 cloud = spec,
                 cloudBaseUrl = cloudProvider.draftScopeKey(),
                 cloudProviderLabel = cloudProvider.label,
+                outputKinds = if (spec.unavailableReason.isBlank()) setOf(spec.kind) else emptySet(),
             ) to ConvertedWorkflow(prompt, fields, warnings, notes)
         }
+        val localServer = container.serverSession.url
         val conv = container.workflowRepository.convert(WorkflowEntry(path, name, ""))
         val titles = conv.prompt.keys().asSequence().associateWith { nodeId ->
             conv.prompt.optJSONObject(nodeId)?.optJSONObject("_meta")?.optString("title").orEmpty()
@@ -401,12 +509,36 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             warnings = conv.warnings,
             notes = conv.notes,
             nodeTitles = titles,
+            localServerUrl = localServer,
+            outputKinds = conv.outputKinds,
         ) to conv
     }
 
     fun updateValue(key: String, value: String) {
         failedMappedFieldKeys.remove(key)
+        if (_state.value.uploads[key]?.phase == ImageUploadPhase.FAILED) clearUpload(key)
         updateDraft { it.copy(values = it.values + (key to value)) }
+    }
+
+    fun refreshLocalDefinition() {
+        val draft = _state.value.draft?.takeUnless { it.isCloud } ?: return
+        val generation = workflowLoadGeneration
+        container.objectInfoCache.invalidate()
+        viewModelScope.launch {
+            runCatching { buildDraft(draft.workflowPath, draft.workflowName) }.onSuccess { (fresh, updated) ->
+                val current = _state.value.draft
+                if (generation != workflowLoadGeneration || current?.workflowPath != draft.workflowPath) return@onSuccess
+                converted = updated
+                val keys = fresh.fields.mapTo(hashSetOf(), PromptField::key)
+                val merged = fresh.copy(values = current.values.filterKeys { it in keys }, randomSeed = current.randomSeed)
+                _state.update { it.copy(draft = merged, insight = insightFor(merged, updated),
+                    message = AppStrings.get(R.string.gen_definition_refreshed)) }
+            }.onFailure { error ->
+                if (generation == workflowLoadGeneration) {
+                    _state.update { it.copy(message = error.message ?: error.javaClass.simpleName) }
+                }
+            }
+        }
     }
     fun toggleRandomSeed() = updateDraft { it.copy(randomSeed = !it.randomSeed) }
     fun setPresetQuery(value: String) = _state.update { it.copy(presetQuery = value) }
@@ -439,6 +571,14 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         val cv = converted ?: return
         if (!draft.isCloud && !container.serverSession.connected) {
             _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_server_disconnected)) }
+            return
+        }
+        if (!draft.isCloud && draft.localServerUrl != container.serverSession.url) {
+            _state.update { it.copy(message = AppStrings.get(R.string.studio_local_server_required, draft.localServerUrl)) }
+            return
+        }
+        if (pendingStudioStageKind?.let { it !in draft.outputKinds } == true) {
+            _state.update { it.copy(message = AppStrings.get(R.string.board_err_choose_workflow)) }
             return
         }
         if (draft.isCloud) {
@@ -479,41 +619,30 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         if (storyboard) {
             val status = container.projectStore.project(projectId)
                 ?.shots?.firstOrNull { it.id == shotId }?.status
-            if (status == "running") {
+            val busy = tasks.value.any { task ->
+                task.isActive && task.request.storyboardProjectId == projectId &&
+                    task.request.storyboardShotId == shotId &&
+                    (task.request.studioStageKind ?: "video") == (pendingStudioStageKind ?: "video")
+            }
+            if (status == "running" || busy) {
                 _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_storyboard_running)) }
                 return
             }
-            syncStoryboardReference(projectId, shotId, draft)
-            syncStoryboardValues(projectId, shotId, draft)
+            if (pendingStudioStageKind == null || pendingStudioStageKind == "video") {
+                syncStoryboardReference(projectId, shotId, draft)
+            }
+            if (!saveShotParameters(projectId, shotId, pendingStudioStageKind ?: "video", draft)) {
+                _state.update { it.copy(message = AppStrings.get(R.string.board_err_persist)) }
+                return
+            }
         }
 
         persistDraftNow(draft)
         val count = effectiveBatchCount(storyboard, _state.value.batchCount)
         val requests = (0 until count).map { index -> buildRequest(draft, cv, index) }
-        // Project budget applies to *all* project-linked stages, including standalone
-        // image/audio prep with no Shot. Never silently bypass the budget via recipes.
-        if (projectId != null) {
-            val budget = container.projectStore.project(projectId)?.budget
-            val stats = taskCostStats(tasks.value, projectId, container.cloudSpendStore.entries.value)
-            when (val decision = BudgetGate.check(stats.costSum, requests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }, budget)) {
-                is BudgetGate.Decision.Blocked -> {
-                    _state.update {
-                        it.copy(
-                            message = AppStrings.get(
-                                R.string.gen_vm_budget_blocked,
-                                decision.budget,
-                                decision.spentEstimate,
-                                decision.newCost,
-                            ),
-                        )
-                    }
-                    return
-                }
-                BudgetGate.Decision.Allowed -> Unit
-            }
-        }
         val localQueue = _state.value.batchLocalQueue
         submitJob = viewModelScope.launch {
+            if (!draft.isCloud && !verifyLocalImages(draft)) return@launch
             val ids = try {
                 container.cloudSubmissionGate.submit(requests, localQueue, draft.cloud?.pricing?.label)
             } catch (error: Exception) {
@@ -521,7 +650,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             if (ids.isEmpty()) return@launch
-            if (projectId != null && shotId != null) {
+            if (projectId != null && shotId != null && requests.first().isPrimaryStudioShot) {
                 // Record the attempt's model/params/seed/cost snapshot on the take.
                 val request = requests.firstOrNull()
                 val seed = request?.fields?.firstOrNull { it.kind == FieldKind.SEED }
@@ -538,8 +667,6 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                         costEstimate = request?.estimatedCloudCost?.toDouble(),
                     ),
                 )
-                pendingStoryboardProjectId = null
-                pendingStoryboardShotId = null
             }
             _state.update {
                 it.copy(
@@ -550,22 +677,59 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Remembers the shot's workflow and portable params for the next Regenerate. */
-    private fun syncStoryboardValues(projectId: String, shotId: String, draft: WorkflowDraft) {
-        val values = draft.fields
-            .filter { it.kind == FieldKind.TEXT || it.kind == FieldKind.PARAM || it.kind == FieldKind.SEED }
-            .associate { field -> field.key to (draft.values[field.key] ?: field.value) }
-        val workflowPath = if (draft.isCloud) draft.workflowPath else ""
-        val workflowId = workflowPath.substringAfter(':').takeIf { workflowPath.isNotBlank() }
-        val providerId = container.cloudProviders.forPath(workflowPath)?.id.orEmpty()
-        container.projectStore.updateShot(projectId, shotId) {
-            it.copy(
-                values = values,
-                workflowPath = workflowPath.takeIf { it.isNotBlank() },
-                providerId = providerId.takeIf { it.isNotBlank() },
-                workflowId = workflowId,
-            )
+    private suspend fun verifyLocalImages(draft: WorkflowDraft): Boolean {
+        val api = container.serverSession.api ?: return false
+        if (api.base != draft.localServerUrl) return false
+        val checked = mutableMapOf<String, Boolean>()
+        var missing: String? = null
+        for (field in draft.fields.filter { it.kind == FieldKind.IMAGE }) {
+            val name = (draft.values[field.key] ?: field.value).takeIf(String::isNotBlank) ?: continue
+            val exists = checked[name] ?: try {
+                api.inputImageExists(name).also { checked[name] = it }
+            } catch (cancelled: kotlin.coroutines.cancellation.CancellationException) {
+                throw cancelled
+            } catch (error: Exception) {
+                _state.update { it.copy(message = error.message ?: error.javaClass.simpleName) }
+                return false
+            }
+            if (!exists) {
+                val message = AppStrings.get(R.string.gen_image_missing, field.label, name)
+                setUpload(field.key, ImageUploadStatus(ImageUploadPhase.FAILED, message))
+                if (missing == null) missing = message
+            } else if (_state.value.uploads[field.key]?.phase == ImageUploadPhase.FAILED) {
+                clearUpload(field.key)
+            }
         }
+        if (missing != null) _state.update { it.copy(message = missing) }
+        return missing == null
+    }
+
+    private fun imageValidationFields(task: GenerationTask, draft: WorkflowDraft): Map<PromptField, String> {
+        val missing = invalidPromptImageNames(task.error?.message.orEmpty())
+        if (missing.isEmpty()) return emptyMap()
+        return buildMap {
+            for (field in task.request.fields) {
+                if (field.kind != FieldKind.IMAGE) continue
+                val name = task.request.fieldValues[field.key] ?: field.value
+                val current = draft.fields.firstOrNull { it.key == field.key } ?: continue
+                if ((draft.values[field.key] ?: current.value) == name &&
+                    missing.any { it == name || it == name.substringAfterLast('/') }) put(field, name)
+            }
+        }
+    }
+
+    private fun saveShotParameters(projectId: String, shotId: String, stage: String, draft: WorkflowDraft): Boolean {
+        val values = draft.fields
+            .filterNot { it.kind.isMedia }
+            .associate { field -> field.key to (draft.values[field.key] ?: field.value) }
+        val workflowPath = if (draft.isCloud) draft.workflowPath else {
+            LocalWorkflowReference.parse(draft.workflowPath)?.key()
+                ?: LocalWorkflowReference(draft.localServerUrl, draft.workflowPath).key()
+        }
+        val workflowId = LocalWorkflowReference.parse(workflowPath)?.workflowPath ?: workflowPath.substringAfter(':')
+        val providerId = container.cloudProviders.forPath(workflowPath)?.id ?: "comfyui"
+        return container.projectStore.saveShotDraft(projectId, shotId,
+            StudioStageDraft(stage, workflowPath, values, draft.randomSeed), providerId, workflowId)
     }
 
     /** Persists a manually changed reference so Regenerate opens the same image. */
@@ -624,7 +788,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             id = UUID.randomUUID().toString(),
             provider = cloudProvider?.id ?: "comfyui",
             providerLabel = cloudProvider?.label.orEmpty(),
-            serverUrl = cloudProvider?.endpoint() ?: container.serverSession.url,
+            serverUrl = cloudProvider?.endpoint() ?: draft.localServerUrl,
             workflowPath = draft.workflowPath,
             workflowName = draft.workflowName,
             fieldValues = values,
@@ -636,6 +800,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             estimatedCloudCost = if (draft.isCloud) cloudCostEstimate(draft, values) else null,
             storyboardProjectId = pendingStoryboardProjectId,
             storyboardShotId = pendingStoryboardShotId,
+            studioStageKind = pendingStudioStageKind,
         )
     }
 
@@ -664,27 +829,6 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         )
         val projectId = request.storyboardProjectId
         val shotId = request.storyboardShotId
-        if (projectId != null && shotId != null) {
-            val budget = container.projectStore.project(projectId)?.budget
-            val spent = taskCostStats(tasks.value, projectId, container.cloudSpendStore.entries.value)
-            when (val decision = BudgetGate.check(
-                spent.costSum, request.estimatedCloudCost?.toDouble() ?: 0.0, budget,
-            )) {
-                is BudgetGate.Decision.Blocked -> {
-                    _state.update { it.copy(message = AppStrings.get(
-                        R.string.gen_vm_budget_blocked,
-                        decision.budget, decision.spentEstimate, decision.newCost,
-                    )) }
-                    return
-                }
-                BudgetGate.Decision.Allowed -> Unit
-            }
-            val shot = container.projectStore.project(projectId)?.shots?.firstOrNull { it.id == shotId }
-            if (shot?.status == "running") {
-                _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_storyboard_running)) }
-                return
-            }
-        }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(listOf(request), localQueue = false)
@@ -693,7 +837,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
                 return@launch
             }
             ids.firstOrNull()?.let { newId ->
-                if (projectId != null && shotId != null) {
+                if (projectId != null && shotId != null && request.isPrimaryStudioShot) {
                     val original = container.projectStore.project(projectId)
                         ?.shots?.firstOrNull { it.id == shotId }
                     container.projectStore.attachTask(
@@ -835,7 +979,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         val mediaAllowed = preset.serverUrl != null && preset.serverUrl == targetServer
         val skippedMedia = if (current != null && !mediaAllowed && preset.isWorkflowPreset) {
             preset.values.keys.count { key ->
-                fieldsByKey[key]?.kind == FieldKind.IMAGE || fieldsByKey[key]?.kind == FieldKind.AUDIO
+                fieldsByKey[key]?.kind?.isMedia == true
             }
         } else 0
         updateDraft { draft ->
@@ -851,7 +995,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             if (preset.isWorkflowPreset && preset.workflowPath == draft.workflowPath) {
                 val accepted = preset.values.filterKeys { key ->
                     key in knownKeys &&
-                        (mediaAllowed || fields[key]?.kind !in setOf(FieldKind.IMAGE, FieldKind.AUDIO))
+                        (mediaAllowed || fields[key]?.kind?.isMedia != true)
                 }
                 when (mode) {
                     PresetApplyMode.ALL -> values = values + accepted
@@ -898,20 +1042,37 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    fun uploadAudio(fieldKey: String, uri: Uri) {
+    fun uploadTimedMedia(fieldKey: String, uri: Uri) {
         val draft = _state.value.draft ?: return
-        if (!draft.isCloud) {
-            _state.update { it.copy(message = AppStrings.get(R.string.gen_vm_local_audio_unsupported)) }
-            return
-        }
+        val field = draft.fields.firstOrNull { it.key == fieldKey &&
+            (it.kind == FieldKind.AUDIO || it.kind == FieldKind.VIDEO) } ?: return
+        val generation = workflowLoadGeneration
         viewModelScope.launch {
             setUpload(fieldKey, ImageUploadStatus(ImageUploadPhase.UPLOADING))
-            runCatching { container.cloudInputStore.saveAudioFromUri(uri) }
+            runCatching { storeTimedMedia(draft, field, uri) }
                 .onSuccess { name ->
+                    if (generation != workflowLoadGeneration) return@onSuccess
                     updateValue(fieldKey, name)
                     clearUpload(fieldKey)
                 }
-                .onFailure { e -> setUpload(fieldKey, ImageUploadStatus(ImageUploadPhase.FAILED, e.message)) }
+                .onFailure { e ->
+                    if (generation == workflowLoadGeneration) {
+                        setUpload(fieldKey, ImageUploadStatus(ImageUploadPhase.FAILED, e.message))
+                    }
+                }
+        }
+    }
+
+    private suspend fun storeTimedMedia(draft: WorkflowDraft, field: PromptField, uri: Uri): String {
+        val api = if (draft.isCloud) null else container.serverSession.require()
+        val file = container.cloudInputStore.copyMedia(
+            uri, field.kind, draft.cloud?.rule(field.input)?.acceptedMediaTypes.orEmpty(), draft.isCloud,
+        )
+        if (api == null) return CloudInputStore.PREFIX + file.absolutePath
+        try {
+            return api.uploadMedia(file, CloudInputStore.mimeForExt(file.extension))
+        } finally {
+            file.delete()
         }
     }
 
@@ -965,7 +1126,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /**
-     * Explicit image/audio input handoff. Keys must match real draft field keys;
+     * Explicit media input handoff. Keys must match real draft field keys;
      * no positional fallback and no silent truncation. All staged uploads are
      * awaited by the existing paid-submission gate.
      */
@@ -976,27 +1137,28 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     ) {
         val draft = _state.value.draft ?: return
         val fields = draft.fields.associateBy { it.key }
-        val unknown = paths.keys.filter { key ->
-            fields[key]?.kind !in setOf(FieldKind.IMAGE, FieldKind.AUDIO)
+        val incompatible = paths.filter { (key, path) ->
+            val field = fields[key] ?: return@filter true
+            val type = field.kind.mediaType ?: return@filter true
+            val file = File(path)
+            !file.isFile || !file.canRead() || !MediaTypeResolver.mimeType(path).startsWith("$type/")
         }
-        if (unknown.isNotEmpty()) {
-            failedMappedFieldKeys += unknown
+        if (incompatible.isNotEmpty()) {
+            failedMappedFieldKeys += incompatible.keys
+            incompatible.keys.filter { it in fields }.forEach { key ->
+                setUpload(key, ImageUploadStatus(ImageUploadPhase.FAILED,
+                    AppStrings.get(R.string.studio_binding_wrong_type)))
+            }
             _state.update { it.copy(message = AppStrings.get(R.string.studio_binding_upload_failed)) }
             return
         }
+        paths.keys.forEach { setUpload(it, ImageUploadStatus(ImageUploadPhase.UPLOADING)) }
         viewModelScope.launch {
             paths.forEach { (key, path) ->
                 if (generation != workflowLoadGeneration ||
                     _state.value.draft?.workflowPath != draft.workflowPath) return@launch
                 val field = fields.getValue(key)
-                setUpload(key, ImageUploadStatus(ImageUploadPhase.UPLOADING))
-                val result = runCatching {
-                    if (field.kind == FieldKind.IMAGE) {
-                        referenceValueFor(draft, field, path)
-                    } else {
-                        container.cloudInputStore.saveAudioFromUri(Uri.fromFile(File(path)))
-                    }
-                }
+                val result = runCatching { referenceValueFor(draft, field, path) }
                 result.onSuccess { value ->
                     if (generation != workflowLoadGeneration ||
                         _state.value.draft?.workflowPath != draft.workflowPath) return@onSuccess
@@ -1013,31 +1175,14 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Fills consecutive image inputs from a multi-reference storyboard shot. */
-    private fun applyReferencePaths(paths: List<String>, initial: Boolean) {
-        val draft = _state.value.draft ?: return
-        val fields = draft.fields.filter { it.kind == FieldKind.IMAGE }.take(paths.size)
-        if (fields.isEmpty()) return
-        viewModelScope.launch {
-            fields.zip(paths).forEach { (field, path) ->
-                setUpload(field.key, ImageUploadStatus(ImageUploadPhase.UPLOADING))
-                runCatching { referenceValueFor(draft, field, path) }
-                    .onSuccess { name ->
-                        if (initial) storyboardReferenceValuesAtLoad[field.key] = name
-                        updateValue(field.key, name)
-                        clearUpload(field.key)
-                    }.onFailure { e ->
-                        setUpload(field.key, ImageUploadStatus(ImageUploadPhase.FAILED, e.message))
-                    }
-            }
-        }
-    }
-
     private suspend fun referenceValueFor(
         draft: WorkflowDraft,
         field: PromptField,
         localPath: String,
     ): String {
+        if (field.kind != FieldKind.IMAGE) {
+            return storeTimedMedia(draft, field, Uri.fromFile(File(localPath)))
+        }
         if (draft.isCloud) {
             return container.cloudInputStore.saveFromFile(localPath, cloudImageDimension())
         }
@@ -1258,7 +1403,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
             return CloudWorkflowMapping.analyze(spec, draft.fields, draft.values)
         }
         val actual = cv ?: return WorkflowInsight(emptySet(), emptyList())
-        return WorkflowInsights.analyze(actual.prompt, draft.fields, draft.values, draft.warnings)
+        return WorkflowInsights.analyze(actual.prompt, draft.fields, draft.values, draft.warnings, actual.blockingProblems)
     }
 
     private fun updateDraft(block: (WorkflowDraft) -> WorkflowDraft) {
@@ -1270,6 +1415,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
 
     private fun scheduleDraftSave(draft: WorkflowDraft) {
         draftSaveJob?.cancel()
+        if (pendingStoryboardShotId != null) return
         val serverUrl = draft.storageServerUrl.ifBlank { container.serverSession.url }
         draftSaveJob = viewModelScope.launch {
             delay(450)
@@ -1278,7 +1424,7 @@ class GenerateViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     private fun persistDraftNow(draft: WorkflowDraft, serverUrl: String = "") {
-        if (!container.appSettingsStore.settings.value.autoSaveDrafts) return
+        if (pendingStoryboardShotId != null || !container.appSettingsStore.settings.value.autoSaveDrafts) return
         val key = serverUrl.ifBlank { draft.storageServerUrl.ifBlank { container.serverSession.url } }
         if (key.isNotBlank()) {
             container.workflowDraftStore.save(draft.workflowPath, key, draft.values, draft.randomSeed)

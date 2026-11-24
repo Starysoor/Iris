@@ -4,6 +4,7 @@ import android.graphics.Bitmap
 import android.media.MediaMetadataRetriever
 import com.comfyremote.app.data.project.ProjectMediaLinks
 import com.comfyremote.app.data.project.ShotTake
+import com.comfyremote.app.data.reference.ProjectAsset
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
 import java.io.File
@@ -58,7 +59,7 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
     /** Projects shown by the "add to project" picker; reads the Studio index. */
     val storyboardProjects = container.projectStore.projects
 
-    data class LinkedResult(val projectId: String, val description: String)
+    data class LinkedResult(val projectId: String, val description: String, val shotId: String? = null)
     private val _linkedResult = MutableStateFlow<LinkedResult?>(null)
     val linkedResult: StateFlow<LinkedResult?> = _linkedResult.asStateFlow()
     fun clearLinkedResult() { _linkedResult.value = null }
@@ -67,7 +68,7 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
      * Add an already-rendered video as a *new candidate*, preserving the currently
      * selected Take, running jobs, original History media and existing timeline.
      */
-    fun attachAsTake(projectId: String, shotId: String, item: HistoryItem, path: String) {
+    fun attachAsTake(projectId: String, shotId: String, item: HistoryItem, path: String, addToTimeline: Boolean = false) {
         viewModelScope.launch(Dispatchers.IO) {
             val file = File(path)
             if (ProjectMediaLinks.kind(path) != ProjectMediaLinks.Kind.VIDEO ||
@@ -90,12 +91,46 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
                 taskId = item.id.takeIf { id -> container.generationManager.tasks.value.any { it.taskId == id } },
                 resultPath = path,
             )
-            if (container.projectStore.attachExistingTake(projectId, shotId, take)) {
-                _linkedResult.value = LinkedResult(projectId, AppStrings.get(R.string.studio_history_take_added))
+            val clip = if (addToTimeline) {
+                timelineClip(item, path) ?: run {
+                    _message.value = AppStrings.get(R.string.studio_history_import_failed, "cannot read duration")
+                    return@launch
+                }
+            } else null
+            if (container.projectStore.attachExistingTake(projectId, shotId, take, clip)) {
+                val feedback = if (addToTimeline) R.string.studio_history_take_timeline_added else R.string.studio_history_take_added
+                _linkedResult.value = LinkedResult(projectId, AppStrings.get(feedback), shotId)
             } else {
                 _message.value = AppStrings.get(R.string.studio_history_import_failed, "already linked, active shot or save failed")
             }
         }
+    }
+
+    fun attachAsFrame(projectId: String, shotId: String, item: HistoryItem, path: String, first: Boolean) {
+        viewModelScope.launch(Dispatchers.IO) {
+            val file = File(path)
+            val role = if (first) ReferenceRole.START_FRAME else ReferenceRole.END_FRAME
+            val asset = ProjectAsset(role = role, path = path, label = item.wfName)
+            if (ProjectMediaLinks.kind(path) == ProjectMediaLinks.Kind.IMAGE && file.isFile && file.canRead() &&
+                container.projectStore.attachExistingFrame(projectId, shotId, asset, first)) {
+                _linkedResult.value = LinkedResult(projectId, AppStrings.get(R.string.studio_history_frame_linked), shotId)
+            } else {
+                _message.value = AppStrings.get(R.string.studio_history_import_failed, file.name)
+            }
+        }
+    }
+
+    private fun timelineClip(item: HistoryItem, path: String): TimelineClip? {
+        val duration = runCatching {
+            val retriever = MediaMetadataRetriever()
+            try {
+                retriever.setDataSource(path)
+                retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
+            } finally {
+                retriever.release()
+            }
+        }.getOrNull()?.takeIf { it > 0L } ?: return null
+        return TimelineClip(sourcePath = path, sourceLabel = item.wfName, sourceOutMs = duration)
     }
 
     /** Reuse a rendered local video/audio as a timeline clip without copying or rewriting it. */
@@ -108,24 +143,11 @@ class HistoryViewModel(private val container: AppContainer) : ViewModel() {
                 _message.value = AppStrings.get(R.string.studio_history_import_failed, "media unavailable")
                 return@launch
             }
-            val duration = runCatching {
-                val retriever = MediaMetadataRetriever()
-                try {
-                    retriever.setDataSource(path)
-                    retriever.extractMetadata(MediaMetadataRetriever.METADATA_KEY_DURATION)?.toLongOrNull()
-                } finally {
-                    retriever.release()
-                }
-            }.getOrNull()
-            if (duration == null || duration <= 0L) {
+            val clip = timelineClip(item, path)
+            if (clip == null) {
                 _message.value = AppStrings.get(R.string.studio_history_import_failed, "cannot read duration")
                 return@launch
             }
-            val clip = TimelineClip(
-                sourcePath = path,
-                sourceLabel = item.wfName,
-                sourceOutMs = duration,
-            )
             if (container.projectStore.addClip(projectId, kind, clip)) {
                 _linkedResult.value = LinkedResult(projectId, AppStrings.get(R.string.studio_history_timeline_added))
             } else {

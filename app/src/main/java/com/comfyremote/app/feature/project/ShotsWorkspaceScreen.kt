@@ -1,7 +1,5 @@
 package com.comfyremote.app.feature.project
 
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.horizontalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
@@ -12,9 +10,8 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
-import androidx.compose.foundation.lazy.LazyRow
-import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.lazy.itemsIndexed
+import androidx.compose.foundation.lazy.rememberLazyListState
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.outlined.Movie
@@ -29,6 +26,7 @@ import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
@@ -37,11 +35,14 @@ import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
-import com.comfyremote.app.data.reference.ReferenceRole
+import com.comfyremote.app.data.generation.GenerationPhase
+import com.comfyremote.app.data.generation.GenerationTask
+import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.ui.IrisType
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.BottomActionBar
 import com.comfyremote.app.ui.components.ChipTone
+import com.comfyremote.app.ui.components.CollapsibleCard
 import com.comfyremote.app.ui.components.DetailTopBar
 import com.comfyremote.app.ui.components.EmptyState
 import com.comfyremote.app.ui.components.IrisCard
@@ -49,6 +50,7 @@ import com.comfyremote.app.ui.components.IrisPrimaryButton
 import com.comfyremote.app.ui.components.IrisScaffold
 import com.comfyremote.app.ui.components.IrisSwitch
 import com.comfyremote.app.ui.components.IrisTextField
+import com.comfyremote.app.ui.components.ListRow
 import com.comfyremote.app.ui.components.SectionHeader
 import com.comfyremote.app.ui.components.StatusChip
 import com.comfyremote.app.ui.components.TextAction
@@ -62,30 +64,37 @@ import kotlinx.coroutines.launch
 fun ShotsWorkspaceScreen(
     viewModel: ProjectViewModel,
     projectId: String,
+    initialShotId: String?,
     onBack: () -> Unit,
     onOpenShot: (String, String) -> Unit,
+    onOpenOverview: () -> Unit,
+    onOpenAssets: () -> Unit,
+    onOpenTimeline: () -> Unit,
+    onOpenTask: (String) -> Unit,
 ) {
     val projects by viewModel.projects.collectAsState()
     val workflows by viewModel.workflows.collectAsState()
+    val stageWorkflows by viewModel.stageWorkflows.collectAsState()
+    val stageInspection by viewModel.stageInspection.collectAsState()
+    val tasks by viewModel.tasks.collectAsState()
     val message by viewModel.message.collectAsState()
     val project = projects.firstOrNull { it.id == projectId }
     val snackbar = remember { SnackbarHostState() }
     val scope = rememberCoroutineScope()
+    val listState = rememberLazyListState()
     var addingShot by remember { mutableStateOf(false) }
     var insertAfterShotId by remember { mutableStateOf<String?>(null) }
-    var assetRoleDialog by remember { mutableStateOf(false) }
-    var pendingAssetRole by remember { mutableStateOf<ReferenceRole?>(null) }
+    var selectedShotId by rememberSaveable(projectId) { mutableStateOf(initialShotId) }
+    var styleOpen by rememberSaveable(projectId) { mutableStateOf(false) }
     var assetShotId by remember { mutableStateOf<String?>(null) }
     var selectedAssetIds by remember { mutableStateOf(setOf<String>()) }
-    var shotWorkflowFor by remember { mutableStateOf<String?>(null) }
+    var shotWorkflowFor by remember { mutableStateOf<Pair<String, String>?>(null) }
+    var inspecting by remember { mutableStateOf<Pair<String, String>?>(null) }
     var takesForShotId by remember { mutableStateOf<String?>(null) }
     var editingShotId by remember { mutableStateOf<String?>(null) }
     var framePick by remember { mutableStateOf<Pair<String, Boolean>?>(null) }
-    val assetPicker = rememberLauncherForActivityResult(ActivityResultContracts.GetContent()) { uri ->
-        val role = pendingAssetRole
-        if (uri != null && role != null) viewModel.addAsset(projectId, role, uri)
-        pendingAssetRole = null
-    }
+    val activeShotId = selectedShotId?.takeIf { id -> project?.shots?.any { it.id == id } == true }
+        ?: project?.shots?.firstOrNull { it.status != "done" }?.id ?: project?.shots?.firstOrNull()?.id
     val allDoneText = stringResource(R.string.board_all_done)
     val runningText = stringResource(R.string.gen_vm_storyboard_running)
     val anyRunning = project?.shots?.any { it.status == "running" } == true
@@ -93,6 +102,12 @@ fun ShotsWorkspaceScreen(
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
+    }
+    LaunchedEffect(initialShotId, project?.id) {
+        if (initialShotId != null && selectedShotId == initialShotId) {
+            val index = project?.shots?.indexOfFirst { it.id == initialShotId } ?: -1
+            if (index >= 0) listState.scrollToItem(index + 4)
+        }
     }
 
     IrisScaffold(
@@ -146,11 +161,26 @@ fun ShotsWorkspaceScreen(
         }
         LazyColumn(
             Modifier.padding(pad).fillMaxSize(),
+            state = listState,
             contentPadding = PaddingValues(start = Spacing.gutter, end = Spacing.gutter, top = Spacing.sm, bottom = Spacing.xl),
             verticalArrangement = Arrangement.spacedBy(Spacing.md),
         ) {
+            item("project-navigation") {
+                Row(
+                    Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                    horizontalArrangement = Arrangement.spacedBy(Spacing.md),
+                ) {
+                    TextAction(stringResource(R.string.studio_workspace_overview), onClick = onOpenOverview)
+                    TextAction(stringResource(R.string.board_assets), onClick = onOpenAssets)
+                    TextAction(stringResource(R.string.proj_open_timeline), onClick = onOpenTimeline)
+                }
+            }
             item("meta") {
-                IrisCard {
+                CollapsibleCard(
+                    title = stringResource(R.string.board_style_prompt),
+                    expanded = styleOpen,
+                    onToggle = { styleOpen = !styleOpen },
+                ) {
                     Text(
                         workflows.firstOrNull {
                             it.path == project.workflowPath || it.workflowId == project.workflowId
@@ -210,38 +240,6 @@ fun ShotsWorkspaceScreen(
                 }
             }
 
-            item("assets-heading") {
-                SectionHeader(stringResource(R.string.board_assets)) {
-                    if (project.assets.isNotEmpty()) {
-                        Text(
-                            project.assets.size.toString(),
-                            style = IrisType.meta,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant,
-                            modifier = Modifier.padding(end = Spacing.xs),
-                        )
-                    }
-                    TextAction(stringResource(R.string.board_add_asset), onClick = { assetRoleDialog = true })
-                }
-            }
-            item("assets") {
-                if (project.assets.isEmpty()) {
-                    Text(
-                        stringResource(R.string.board_assets_empty_hint),
-                        style = MaterialTheme.typography.bodySmall,
-                        color = MaterialTheme.colorScheme.onSurfaceVariant,
-                    )
-                } else {
-                    LazyRow(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                        items(project.assets, key = { it.id }) { asset ->
-                            AssetCard(
-                                asset = asset,
-                                label = assetDisplayLabel(project, asset),
-                            ) { viewModel.removeAsset(project.id, asset.id) }
-                        }
-                    }
-                }
-            }
-
             item("shots-heading") {
                 SectionHeader(stringResource(R.string.board_shots)) {
                     TextAction(stringResource(R.string.board_add_shot), onClick = { addingShot = true })
@@ -261,6 +259,22 @@ fun ShotsWorkspaceScreen(
                 }
             } else {
                 itemsIndexed(project.shots, key = { _, shot -> shot.id }) { index, shot ->
+                    if (shot.id != activeShotId) {
+                        val (status, tone) = when (shot.status) {
+                            "done" -> R.string.board_status_done to ChipTone.Success
+                            "running" -> R.string.board_status_running to ChipTone.Accent
+                            "failed" -> R.string.board_status_failed to ChipTone.Error
+                            else -> R.string.board_status_draft to ChipTone.Neutral
+                        }
+                        ListRow(
+                            title = stringResource(R.string.board_shot_number, index + 1),
+                            subtitle = shot.prompt.takeIf(String::isNotBlank),
+                            subtitleMaxLines = 2,
+                            meta = { StatusChip(stringResource(status), tone = tone) },
+                            onClick = { selectedShotId = shot.id },
+                        )
+                        return@itemsIndexed
+                    }
                     val previous = project.shots.getOrNull(index - 1)
                     val next = project.shots.getOrNull(index + 1)
                     ShotTimelineItem(
@@ -293,7 +307,7 @@ fun ShotsWorkspaceScreen(
                         onMoveDown = { viewModel.moveShot(project.id, shot.id, 1) },
                         onDuplicate = { viewModel.duplicateShot(project.id, shot.id) },
                         onInsertAfter = { insertAfterShotId = shot.id },
-                        onPickWorkflow = { shotWorkflowFor = shot.id },
+                        onPickWorkflow = { shotWorkflowFor = shot.id to "video" },
                         onPickAsset = {
                             assetShotId = shot.id
                             selectedAssetIds = shot.referenceAssetIds.toSet()
@@ -308,6 +322,66 @@ fun ShotsWorkspaceScreen(
                         },
                         onClearReference = { viewModel.clearShotReference(project.id, shot.id) },
                     )
+                    val shotTasks = tasks.filter {
+                        it.request.storyboardProjectId == project.id && it.request.storyboardShotId == shot.id
+                    }
+                    val videoPath = StudioWorkflowRecipes.workflowPath(project, "video", shot)
+                    val videoTask = shotTasks.firstOrNull { it.taskId == shot.taskId }
+                    if (videoPath != null || videoTask != null || shot.resultPath != null) {
+                        Row(
+                            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+                        ) {
+                            if (videoPath != null && stageWorkflows.any { it.path == videoPath && it.kind == "video" }) {
+                                TextAction(stringResource(R.string.studio_contract_inspect), onClick = {
+                                    inspecting = shot.id to "video"
+                                    viewModel.inspectStage(projectId, "video", videoPath, shot.id)
+                                })
+                            }
+                            videoTask?.let { task ->
+                                TextAction(stringResource(R.string.gen_task), onClick = { onOpenTask(task.taskId) })
+                                if (task.phase == GenerationPhase.SUCCEEDED) {
+                                    TextAction(stringResource(R.string.studio_history_as_asset), onClick = {
+                                        viewModel.keepStageResult(projectId, shot.id, task.taskId)
+                                    })
+                                }
+                            }
+                            if (shot.status == "done" && shot.resultPath != null) {
+                                TextAction(stringResource(R.string.studio_workspace_add_timeline), onClick = {
+                                    viewModel.addShotToTimeline(project.id, shot.id)
+                                })
+                            }
+                        }
+                    }
+                    for ((kind, title) in listOf("image" to R.string.studio_workspace_keyframe,
+                        "audio" to R.string.studio_workspace_audio)) {
+                        val path = StudioWorkflowRecipes.workflowPath(project, kind, shot)
+                        val model = stageWorkflows.firstOrNull { it.path == path && it.kind == kind }
+                        val task = shotTasks.filter { it.request.studioStageKind == kind }
+                            .maxByOrNull { it.createdAt }
+                        ShotPreparationCard(
+                            title = stringResource(title),
+                            model = model,
+                            task = task,
+                            audio = kind == "audio",
+                            canRun = shot.status != "running",
+                            onPick = { shotWorkflowFor = shot.id to kind },
+                            onInspect = {
+                                if (path != null) {
+                                    inspecting = shot.id to kind
+                                    viewModel.inspectStage(projectId, kind, path, shot.id)
+                                }
+                            },
+                            onLaunch = {
+                                viewModel.openShotStage(project.id, shot.id, kind)?.let { (path, name) ->
+                                    onOpenShot(path, name)
+                                }
+                            },
+                            onTask = onOpenTask,
+                            onUse = { id, firstFrame -> viewModel.useShotStageResult(project.id, shot.id, id, firstFrame) },
+                            onKeep = { id -> viewModel.keepStageResult(project.id, shot.id, id) },
+                        )
+                    }
                 }
             }
         }
@@ -318,6 +392,7 @@ fun ShotsWorkspaceScreen(
             onDismiss = { addingShot = false },
             onAdd = { prompt, notes ->
                 viewModel.addShot(projectId, prompt, notes)
+                selectedShotId = viewModel.project(projectId)?.shots?.lastOrNull()?.id
                 addingShot = false
             },
         )
@@ -331,28 +406,19 @@ fun ShotsWorkspaceScreen(
             },
         )
     }
-    if (assetRoleDialog) {
-        AssetRoleDialog(
-            onDismiss = { assetRoleDialog = false },
-            onRole = { role ->
-                pendingAssetRole = role
-                assetRoleDialog = false
-                assetPicker.launch("image/*")
-            },
-        )
-    }
-    shotWorkflowFor?.let { shotId ->
-        val currentPath = project?.shots?.firstOrNull { it.id == shotId }?.workflowPath
+    shotWorkflowFor?.let { (shotId, kind) ->
+        val shot = project?.shots?.firstOrNull { it.id == shotId }
+        val currentPath = if (kind == "video") shot?.workflowPath else shot?.stageWorkflowPaths?.get(kind)
         ShotWorkflowDialog(
             currentPath = currentPath,
-            workflows = workflows,
+            workflows = stageWorkflows.filter { it.kind == kind },
             onDismiss = { shotWorkflowFor = null },
             onFollowProject = {
-                viewModel.setShotWorkflow(projectId, shotId, null)
+                viewModel.setShotStageWorkflow(projectId, shotId, kind, null)
                 shotWorkflowFor = null
             },
             onPick = { wf ->
-                viewModel.setShotWorkflow(projectId, shotId, wf.path)
+                viewModel.setShotStageWorkflow(projectId, shotId, kind, wf.path)
                 shotWorkflowFor = null
             },
         )
@@ -419,6 +485,25 @@ fun ShotsWorkspaceScreen(
             )
         }
     }
+    inspecting?.let { (shotId, kind) ->
+        val shot = project?.shots?.firstOrNull { it.id == shotId }
+        val path = if (project != null && shot != null) StudioWorkflowRecipes.workflowPath(project, kind, shot) else null
+        if (project != null && path != null) {
+            StudioContractDialog(
+                project = project, kind = kind, workflowPath = path, inspection = stageInspection, shotId = shotId,
+                onBindField = { field, assetId ->
+                    viewModel.setStageMediaBinding(projectId, kind, path, field, assetId, shotId)
+                },
+                onDismiss = { inspecting = null },
+                onRun = {
+                    viewModel.openShotStage(projectId, shotId, kind)?.let { (workflowPath, name) ->
+                        inspecting = null
+                        onOpenShot(workflowPath, name)
+                    }
+                },
+            )
+        }
+    }
     framePick?.let { (shotId, first) ->
         if (project == null) {
             framePick = null
@@ -434,6 +519,68 @@ fun ShotsWorkspaceScreen(
                     framePick = null
                 },
             )
+        }
+    }
+}
+
+@Composable
+private fun ShotPreparationCard(
+    title: String,
+    model: ProjectWorkflowOption?,
+    task: GenerationTask?,
+    audio: Boolean,
+    canRun: Boolean,
+    onPick: () -> Unit,
+    onInspect: () -> Unit,
+    onLaunch: () -> Unit,
+    onTask: (String) -> Unit,
+    onUse: (String, Boolean) -> Unit,
+    onKeep: (String) -> Unit,
+) {
+    IrisCard {
+        SectionHeader(title) {
+            val status = when {
+                task?.isActive == true -> R.string.board_status_running to ChipTone.Accent
+                task?.phase == GenerationPhase.SUCCEEDED -> R.string.board_status_done to ChipTone.Success
+                task?.phase == GenerationPhase.FAILED -> R.string.board_status_failed to ChipTone.Error
+                else -> null
+            }
+            status?.let { (label, tone) -> StatusChip(stringResource(label), tone = tone) }
+        }
+        Text(
+            model?.let { "${it.providerLabel} · ${it.name}" }
+                ?: stringResource(R.string.studio_workspace_pick_model),
+            style = MaterialTheme.typography.bodyMedium,
+        )
+        Row(
+            Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+            horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+        ) {
+            TextAction(stringResource(R.string.board_shot_workflow), onClick = onPick)
+            if (model != null) TextAction(stringResource(R.string.studio_contract_inspect), onClick = onInspect)
+            TextAction(
+                stringResource(R.string.studio_recipe_run_stage),
+                onClick = onLaunch,
+                enabled = canRun && model != null && task?.isActive != true,
+            )
+            task?.let { TextAction(stringResource(R.string.gen_task), onClick = { onTask(it.taskId) }) }
+        }
+        if (task?.phase == GenerationPhase.SUCCEEDED && task.results.isNotEmpty()) {
+            Row(
+                Modifier.fillMaxWidth().horizontalScroll(rememberScrollState()),
+                horizontalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                TextAction(stringResource(R.string.studio_history_as_asset), onClick = { onKeep(task.taskId) })
+                if (audio) {
+                    TextAction(stringResource(R.string.studio_workspace_add_timeline),
+                        onClick = { onUse(task.taskId, true) })
+                } else {
+                    TextAction(stringResource(R.string.studio_workspace_use_first),
+                        onClick = { onUse(task.taskId, true) }, enabled = canRun)
+                    TextAction(stringResource(R.string.studio_workspace_use_last),
+                        onClick = { onUse(task.taskId, false) }, enabled = canRun)
+                }
+            }
         }
     }
 }

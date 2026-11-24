@@ -1,11 +1,47 @@
 package com.comfyremote.app.data.cloud
 
+import org.json.JSONObject
 import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 
 class CloudModelParametersTest {
+    @Test
+    fun autoDlUsesOneFamilyDecisionForNamespacedIdsAndUnsupportedMedia() {
+        assertEquals("h3", autoDlModelFamily("MiniMaxAI/MiniMax-H3"))
+        assertEquals("h3", autoDlModelFamily("vendor/MINIMAX_H3"))
+        assertEquals("wan", autoDlModelFamily("Wan-AI/Wan2.7-I2V"))
+        assertEquals("image", autoDlModelFamily("vendor/MiniMax-H3-Image", "image"))
+        assertEquals("", autoDlModelFamily("vendor/veo-3", "video"))
+    }
+
+    @Test
+    fun autoDlQwenImageUsesTheDocumentedSizeOptions() {
+        assertEquals(listOf("1328x1328", "1664x928"), autoDlImageSizes("Qwen-Image"))
+        assertEquals(listOf("1024x1024"), autoDlImageSizes("Z-Image-Turbo"))
+        assertTrue(autoDlImageSizes("Qwen-Image-Edit").isEmpty())
+    }
+
+    @Test
+    fun autoDlWan27KeepsTheModelIdAndSendsBothFramesAndNegativePrompt() {
+        val model = "Wan-AI/Wan2.7-I2V"
+        val body = JSONObject()
+            .put("first_frame_image", "https://example.test/start.png")
+            .put("last_frame_image", "https://example.test/end.png")
+            .put("negative_prompt", "flickering")
+            .put("duration", 6)
+
+        val payload = buildAutoDlWanPayload(model, body)
+        val input = payload.getJSONObject("input")
+        val frames = input.getJSONArray("media")
+        assertEquals(model, payload.getString("model"))
+        assertEquals("first_frame", frames.getJSONObject(0).getString("type"))
+        assertEquals("last_frame", frames.getJSONObject(1).getString("type"))
+        assertEquals("https://example.test/end.png", frames.getJSONObject(1).getString("url"))
+        assertEquals("flickering", input.getString("negative_prompt"))
+        assertEquals(6, payload.getJSONObject("parameters").getInt("duration"))
+    }
 
     @Test
     fun gptImageModelsExposeAReferenceImageAndRealQualityOptions() {

@@ -1,6 +1,7 @@
 package com.comfyremote.app.data.repository
 
 import com.comfyremote.app.PromptField
+import com.comfyremote.app.data.reference.ReferenceRole
 
 /** One-shot handoff used when History/Task Center reopens a workflow for editing. */
 data class DraftTransfer(
@@ -21,8 +22,12 @@ data class DraftTransfer(
     val reuseAcrossWorkflows: Boolean = false,
     /** Multiple local reference images for consecutive image inputs. */
     val referenceLocalPaths: List<String> = emptyList(),
-    /** Verified provider input field names to explicit local media files (image/audio). */
+    /** Verified workflow field keys for explicit local media bindings. */
     val referenceFieldPaths: Map<String, String> = emptyMap(),
+    val studioPrompt: String? = null,
+    val studioStageKind: String? = null,
+    val restoreStudioPrompt: Boolean = false,
+    val referenceRolePaths: Map<ReferenceRole, String> = emptyMap(),
 )
 
 class DraftTransferRepository {

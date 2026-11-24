@@ -9,20 +9,21 @@ import com.comfyremote.app.data.generation.GenerationTask
  * selected visual status chip to widen an action to unrelated projects.
  */
 internal object TaskBulkSelection {
-    fun matchesScope(task: GenerationTask, serverUrl: String?, projectFilter: String?): Boolean =
+    fun matchesScope(task: GenerationTask, serverUrl: String?, projectFilter: String?, shotId: String? = null): Boolean =
         (serverUrl == null || task.request.serverUrl == serverUrl) &&
-            (projectFilter == null || task.request.storyboardProjectId.orEmpty() == projectFilter)
+            (projectFilter == null || task.request.storyboardProjectId.orEmpty() == projectFilter) &&
+            (shotId == null || task.request.storyboardShotId == shotId)
 
-    fun queued(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?): List<GenerationTask> =
+    fun queued(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?, shotId: String? = null): List<GenerationTask> =
         tasks.filter { task ->
-            matchesScope(task, serverUrl, projectFilter) && task.isActive &&
+            matchesScope(task, serverUrl, projectFilter, shotId) && task.isActive &&
                 (task.localPending || task.phase == GenerationPhase.PREPARING ||
                     task.phase == GenerationPhase.QUEUEING || task.phase == GenerationPhase.QUEUED)
         }
 
-    fun failed(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?): List<GenerationTask> =
-        tasks.filter { matchesScope(it, serverUrl, projectFilter) && it.phase == GenerationPhase.FAILED }
+    fun failed(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?, shotId: String? = null): List<GenerationTask> =
+        tasks.filter { matchesScope(it, serverUrl, projectFilter, shotId) && it.phase == GenerationPhase.FAILED }
 
-    fun finished(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?): List<GenerationTask> =
-        tasks.filter { matchesScope(it, serverUrl, projectFilter) && it.isTerminal }
+    fun finished(tasks: List<GenerationTask>, serverUrl: String?, projectFilter: String?, shotId: String? = null): List<GenerationTask> =
+        tasks.filter { matchesScope(it, serverUrl, projectFilter, shotId) && it.isTerminal }
 }

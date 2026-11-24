@@ -2,6 +2,8 @@ package com.comfyremote.app.data.project
 
 import android.content.Context
 import android.media.MediaMetadataRetriever
+import android.os.Handler
+import android.os.Looper
 import androidx.media3.common.MediaItem
 import androidx.media3.common.audio.AudioProcessor
 import androidx.media3.common.audio.BaseAudioProcessor
@@ -17,13 +19,15 @@ import androidx.media3.transformer.ExportResult
 import androidx.media3.transformer.Transformer
 import java.io.File
 import java.nio.ByteBuffer
-import java.util.concurrent.atomic.AtomicBoolean
 import kotlin.coroutines.resume
 import kotlin.coroutines.resumeWithException
 import kotlinx.coroutines.async
+import kotlinx.coroutines.CancellableContinuation
 import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.delay
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.suspendCancellableCoroutine
+import kotlinx.coroutines.withContext
 
 /**
  * Renders an [ExportPlanBuilder.Plan] to MP4 with media3 Transformer:
@@ -41,9 +45,7 @@ class VideoExporter(private val context: Context) {
     }
 
     private var transformer: Transformer? = null
-    private val completed = AtomicBoolean(false)
-    private val failed = AtomicBoolean(false)
-    private var cancelRequested = false
+    private var activeExport: CancellableContinuation<ExportResult?>? = null
 
     /**
      * Exports the plan into [target] (a `.tmp` path in the final directory),
@@ -52,9 +54,8 @@ class VideoExporter(private val context: Context) {
      */
     suspend fun export(plan: ExportPlanBuilder.Plan, target: File, onProgress: (Float) -> Unit): Result {
         check(plan.items.isNotEmpty()) { "Export plan is empty" }
-        completed.set(false)
-        failed.set(false)
-        cancelRequested = false
+        check(activeExport == null) { "An export is already running" }
+        target.parentFile?.mkdirs()
 
         fun edited(item: ExportPlanBuilder.Item): EditedMediaItem {
             val mediaItem = MediaItem.Builder()
@@ -91,61 +92,76 @@ class VideoExporter(private val context: Context) {
             Composition.Builder(videoSequence, audioSequence).build()
         }
 
-        coroutineScope {
-            val completion = async {
-                suspendCancellableCoroutine { continuation ->
-                    val exporter = Transformer.Builder(context)
-                        // Some API 29 software codecs need more than the default 10 s
-                        // to produce the first mixed sample. Keep a finite watchdog.
-                        .setMaxDelayBetweenMuxerSamplesMs(30_000L)
-                        .addListener(object : Transformer.Listener {
-                            override fun onCompleted(composition: Composition, result: ExportResult) {
-                                completed.set(true)
-                                if (continuation.isActive) continuation.resume(result)
-                            }
+        val result = try {
+            coroutineScope {
+                val completion = async {
+                    suspendCancellableCoroutine<ExportResult?> { continuation ->
+                        val exporter = Transformer.Builder(context)
+                            // Some API 29 software codecs need more than 10 s for the first mixed sample.
+                            .setMaxDelayBetweenMuxerSamplesMs(30_000L)
+                            .addListener(object : Transformer.Listener {
+                                override fun onCompleted(composition: Composition, result: ExportResult) {
+                                    if (continuation.isActive) continuation.resume(result)
+                                }
 
-                            override fun onError(composition: Composition, result: ExportResult, error: ExportException) {
-                                failed.set(true)
-                                if (continuation.isActive) continuation.resumeWithException(error)
-                            }
-                        })
-                        .build()
-                    transformer = exporter
-                    exporter.start(composition, target.absolutePath)
-                    continuation.invokeOnCancellation { exporter.cancel() }
+                                override fun onError(composition: Composition, result: ExportResult, error: ExportException) {
+                                    if (continuation.isActive) continuation.resumeWithException(error)
+                                }
+                            })
+                            .build()
+                        transformer = exporter
+                        activeExport = continuation
+                        continuation.invokeOnCancellation { onTransformerThread(exporter) { exporter.cancel() } }
+                        if (continuation.isActive) exporter.start(composition, target.absolutePath)
+                    }
                 }
-            }
-            // Progress pump while the transform runs elsewhere.
-            val holder = ProgressHolder()
-            while (completion.isActive && !completed.get() && !failed.get()) {
-                val state = transformer?.getProgress(holder)
-                if (state == Transformer.PROGRESS_STATE_AVAILABLE) {
-                    onProgress((holder.progress / 100f).coerceIn(0f, 1f))
+                val holder = ProgressHolder()
+                while (completion.isActive) {
+                    if (transformer?.getProgress(holder) == Transformer.PROGRESS_STATE_AVAILABLE) {
+                        onProgress((holder.progress / 100f).coerceIn(0f, 1f))
+                    }
+                    delay(PROGRESS_POLL_MS)
                 }
-                delay(PROGRESS_POLL_MS)
+                completion.await()
             }
-            completion.await()
+        } finally {
+            activeExport = null
+            transformer = null
         }
-        if (cancelRequested) return Result.Cancelled
+        if (result == null) return Result.Cancelled
+
+        val durationMs = withContext(Dispatchers.IO) {
+            if (!target.isFile || target.length() == 0L) {
+                throw IllegalStateException("Export produced no output file")
+            }
+            verifyOutput(target, plan.expectedDurationMs, plan.audioItems.isNotEmpty())
+        }
         onProgress(1f)
-
-        target.parentFile?.mkdirs()
-        if (!target.isFile || target.length() == 0L) {
-            throw IllegalStateException("Export produced no output file")
-        }
-        val durationMs = verifyOutput(target, plan.expectedDurationMs, plan.audioItems.isNotEmpty())
         return Result.Success(target, durationMs)
     }
 
     /** Cancels a running transform; export() then reports Result.Cancelled. */
     fun cancel() {
-        cancelRequested = true
-        transformer?.cancel()
+        val exporter = transformer ?: return
+        val continuation = activeExport ?: return
+        onTransformerThread(exporter) {
+            if (continuation.isActive) {
+                try {
+                    exporter.cancel()
+                } finally {
+                    if (continuation.isActive) continuation.resume(null)
+                }
+            }
+        }
+    }
+
+    private fun onTransformerThread(exporter: Transformer, action: () -> Unit) {
+        val looper = exporter.applicationLooper
+        if (Looper.myLooper() == looper) action() else Handler(looper).post { action() }
     }
 
     /**
-     * Full-file verification: the result must be decodable and its duration
-     * must land within [DURATION_TOLERANCE] of the plan expectation.
+     * Checks the container duration and required tracks before publishing the export.
      */
     private fun verifyOutput(file: File, expectedMs: Long, requireAudio: Boolean): Long {
         val metadata = try {
@@ -210,6 +226,5 @@ class VideoExporter(private val context: Context) {
 
     companion object {
         private const val PROGRESS_POLL_MS = 200L
-        private const val DURATION_TOLERANCE = 0.10
     }
 }

@@ -94,6 +94,7 @@ object GenerationTaskCodec {
         .put("estimatedCloudCost", request.estimatedCloudCost ?: JSONObject.NULL)
         .put("storyboardProjectId", request.storyboardProjectId ?: JSONObject.NULL)
         .put("storyboardShotId", request.storyboardShotId ?: JSONObject.NULL)
+        .put("studioStageKind", request.studioStageKind ?: JSONObject.NULL)
 
     private fun requestFromJson(o: JSONObject): GenerationRequest? = runCatching {
         GenerationRequest(
@@ -112,6 +113,7 @@ object GenerationTaskCodec {
             estimatedCloudCost = nullableInt(o, "estimatedCloudCost"),
             storyboardProjectId = nullableString(o, "storyboardProjectId"),
             storyboardShotId = nullableString(o, "storyboardShotId"),
+            studioStageKind = nullableString(o, "studioStageKind"),
         )
     }.getOrNull()
 

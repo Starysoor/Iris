@@ -2,14 +2,20 @@ package com.comfyremote.app.data.cloud
 
 import android.content.Context
 import android.net.Uri
+import android.provider.OpenableColumns
+import com.comfyremote.app.FieldKind
 import com.comfyremote.app.data.media.ImagePreprocessor
 import com.comfyremote.app.data.media.BoundedMediaInput
+import com.comfyremote.app.data.media.MediaTypeResolver
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.currentCoroutineContext
+import kotlinx.coroutines.ensureActive
 import kotlinx.coroutines.withContext
 import java.io.File
 import java.io.FileOutputStream
 import java.io.IOException
 import java.util.Base64
+import java.util.UUID
 
 /**
  * Durable copy of images selected for a hosted workflow. AutoDL accepts
@@ -20,6 +26,7 @@ import java.util.Base64
 class CloudInputStore(private val context: Context) {
     private val dir = File(context.filesDir, "cloud_inputs").apply { mkdirs() }
     private val audioDir = File(context.filesDir, "cloud_audio").apply { mkdirs() }
+    private val videoDir = File(context.filesDir, "cloud_video").apply { mkdirs() }
 
     /** Copies a gallery/camera Uri into app storage and returns `local:<path>`. */
     suspend fun saveFromUri(uri: Uri, maxDimension: Int = 1024): String = withContext(Dispatchers.IO) {
@@ -41,23 +48,50 @@ class CloudInputStore(private val context: Context) {
         saveBytes(file.readBytes(), mimeForExt(file.extension), maxDimension)
     }
 
-    /** Copies an audio file used by a hosted TTS/lip-sync workflow. */
-    suspend fun saveAudioFromUri(uri: Uri): String = withContext(Dispatchers.IO) {
-        val mime = context.contentResolver.getType(uri)
-        val ext = extensionForAudio(mime, uri.lastPathSegment)
-        val target = File(audioDir, "cloud_audio_${System.currentTimeMillis()}_${(1000..9999).random()}.$ext")
-        val tmp = File(audioDir, target.name + ".tmp")
+    /** Copies a timed-media file for a hosted workflow or stages a local ComfyUI upload. */
+    suspend fun copyMedia(
+        uri: Uri,
+        kind: FieldKind,
+        acceptedTypes: List<String> = emptyList(),
+        forCloud: Boolean,
+    ): File = withContext(Dispatchers.IO) {
+        require(kind == FieldKind.AUDIO || kind == FieldKind.VIDEO)
+        val resolver = context.contentResolver
+        val name = if (uri.scheme == "content") {
+            resolver.query(uri, arrayOf(OpenableColumns.DISPLAY_NAME), null, null, null)?.use {
+                if (it.moveToFirst()) it.getString(0) else null
+            }
+        } else uri.lastPathSegment
+        val ext = extensionForMedia(resolver.getType(uri), name ?: uri.lastPathSegment, kind)
+        val mime = mimeForExt(ext)
+        if (acceptedTypes.isNotEmpty() && acceptedTypes.none {
+                it.equals(mime, true) || it.equals("${kind.mediaType}/*", true)
+            }) throw IOException("Media format $mime is unsupported. Accepted: ${acceptedTypes.joinToString()}")
+        val folder = when {
+            !forCloud -> File(context.cacheDir, "comfy_uploads").apply { mkdirs() }
+            kind == FieldKind.VIDEO -> videoDir
+            else -> audioDir
+        }
+        val limit = when {
+            !forCloud && kind == FieldKind.VIDEO -> 1024L * 1024 * 1024
+            !forCloud -> 512L * 1024 * 1024
+            kind == FieldKind.VIDEO -> BoundedMediaInput.MAX_INLINE_VIDEO_BYTES
+            else -> BoundedMediaInput.MAX_AUDIO_BYTES
+        }
+        val target = File(folder, "iris_${kind.mediaType}_${UUID.randomUUID()}.$ext")
+        val tmp = File(folder, target.name + ".tmp")
+        val operation = currentCoroutineContext()
         try {
-            val input = context.contentResolver.openInputStream(uri)
-                ?: throw IllegalStateException("读取音频失败")
+            val input = resolver.openInputStream(uri) ?: throw IOException("Could not open the media file")
             input.use { source ->
                 FileOutputStream(tmp).use { output ->
-                    BoundedMediaInput.copy(source, output, BoundedMediaInput.MAX_AUDIO_BYTES)
+                    val bytes = BoundedMediaInput.copy(source, output, limit) { operation.ensureActive() }
+                    if (bytes == 0L) throw IOException("The media file is empty")
                     output.fd.sync()
                 }
             }
-            if (!tmp.renameTo(target)) throw IOException("Cannot store audio safely")
-            PREFIX + target.absolutePath
+            if (!tmp.renameTo(target)) throw IOException("Cannot store the media file safely")
+            target
         } finally {
             tmp.delete()
         }
@@ -108,7 +142,9 @@ class CloudInputStore(private val context: Context) {
         }
         val path = localPath(value) ?: return null
         val file = File(path)
-        if (!file.isFile || file.length() > BoundedMediaInput.MAX_AUDIO_BYTES) return null
+        val limit = if (MediaTypeResolver.isVideo(file.name)) BoundedMediaInput.MAX_INLINE_VIDEO_BYTES
+            else BoundedMediaInput.MAX_AUDIO_BYTES
+        if (!file.isFile || file.length() <= 0L || file.length() > limit) return null
         val bytes = runCatching { file.readBytes() }.getOrNull() ?: return null
         val encoded = Base64.getEncoder().encodeToString(bytes)
         return "data:${mimeForExt(file.extension)};base64,$encoded"
@@ -119,7 +155,7 @@ class CloudInputStore(private val context: Context) {
         val keep = protectedValues
             .mapNotNull { localPath(it)?.let { path -> File(path).absolutePath } }
             .toSet()
-        listOf(dir, audioDir).forEach { folder ->
+        listOf(dir, audioDir, videoDir).forEach { folder ->
             folder.listFiles()?.forEach { file ->
                 if (file.absolutePath !in keep) runCatching { file.delete() }
             }
@@ -131,30 +167,28 @@ class CloudInputStore(private val context: Context) {
 
         private val AUDIO_EXTENSIONS = setOf("wav", "mp3", "m4a", "ogg", "flac", "aac")
 
-        fun mimeForExt(ext: String): String = when (ext.lowercase()) {
-            "png" -> "image/png"
-            "webp" -> "image/webp"
-            "gif" -> "image/gif"
-            "wav" -> "audio/wav"
-            "mp3" -> "audio/mpeg"
-            "m4a" -> "audio/mp4"
-            "ogg" -> "audio/ogg"
-            "flac" -> "audio/flac"
-            "aac" -> "audio/aac"
-            else -> "image/jpeg"
-        }
+        fun mimeForExt(ext: String): String =
+            MediaTypeResolver.mimeType("file.$ext").takeUnless { it == "image/*" } ?: "image/jpeg"
 
-        private fun extensionForAudio(mime: String?, name: String?): String {
-            val fromName = name?.substringAfterLast('.', "")?.lowercase().orEmpty()
-            if (fromName in AUDIO_EXTENSIONS) return fromName
-            return when (mime?.lowercase()) {
+        private fun extensionForMedia(mime: String?, name: String?, kind: FieldKind): String {
+            val fromMime = when (mime?.substringBefore(';')?.lowercase()) {
+                "audio/wav", "audio/wave", "audio/x-wav" -> "wav"
                 "audio/mpeg", "audio/mp3" -> "mp3"
                 "audio/mp4", "audio/x-m4a" -> "m4a"
-                "audio/ogg" -> "ogg"
+                "audio/ogg", "application/ogg" -> "ogg"
                 "audio/flac", "audio/x-flac" -> "flac"
                 "audio/aac" -> "aac"
-                else -> "wav"
+                "video/mp4", "video/x-m4v" -> "mp4"
+                "video/webm" -> "webm"
+                "video/quicktime" -> "mov"
+                "video/x-matroska" -> "mkv"
+                "video/x-msvideo" -> "avi"
+                "video/3gpp" -> "3gp"
+                else -> null
             }
+            val ext = fromMime ?: name?.substringAfterLast('.', "")?.lowercase()
+            if (ext != null && mimeForExt(ext).startsWith("${kind.mediaType}/")) return ext
+            throw IOException("Could not identify a supported ${kind.mediaType} file")
         }
     }
 }

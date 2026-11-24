@@ -298,6 +298,12 @@ class WorkflowsViewModel(private val container: AppContainer) : ViewModel() {
         else loadInternal(force = false)
     }
 
+    fun refreshLocal(refreshDefinition: Boolean = false) {
+        if (_state.value.source != WorkflowSource.LOCAL) return
+        if (refreshDefinition) container.objectInfoCache.invalidate()
+        loadInternal(force = false)
+    }
+
     fun loadCloud(force: Boolean = false) {
         if (_state.value.cloudLoading) {
             cloudReloadQueued = true

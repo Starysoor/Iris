@@ -61,7 +61,12 @@ object DirectorPrompts {
      * IDs and labels are descriptive hints only; Media/Provider capabilities remain
      * subject to the real catalogue/validation before any generation.
      */
-    fun user(project: VideoProject, configuredVideoModels: List<String> = emptyList()): String = buildString {
+    fun user(
+        project: VideoProject,
+        configuredVideoModels: List<String> = emptyList(),
+        revision: String? = null,
+        previous: List<SuggestedShot> = emptyList(),
+    ): String = buildString {
         appendLine("请为以下项目提出新增镜头计划；保留既有镜头与所有已选择的 Take。")
         appendLine("项目：${project.title.take(120)}")
         if (project.synopsis.isNotBlank()) appendLine("剧本：${project.synopsis.take(1400)}")
@@ -116,8 +121,18 @@ object DirectorPrompts {
         }.coerceAtMost(12)
         val secondsEach = remaining?.let { (it + suggestedCount - 1) / suggestedCount }
         appendLine("已规划镜头叙事时长约 ${planned} 秒；本次剩余目标时长 ${remaining ?: "未设置"} 秒。")
-        appendLine("请规划 $suggestedCount 个新镜头。" +
-            (if (secondsEach != null && remaining != null && remaining > 0) " 平均叙事时长约 ${secondsEach} 秒，请考虑模型单段时长及续接。" else ""))
+        if (revision.isNullOrBlank()) {
+            appendLine("请规划 $suggestedCount 个新镜头。" +
+                (if (secondsEach != null && remaining > 0) " 平均叙事时长约 ${secondsEach} 秒，请考虑模型单段时长及续接。" else ""))
+        } else {
+            appendLine("根据用户的修改请求修订这份未保存的建议。保留未要求修改的角色、场景与镜头顺序，返回完整的修订版 JSON。")
+            appendLine("修改请求：${revision.trim().take(1_200)}")
+            previous.take(16).forEachIndexed { index, shot ->
+                appendLine("- 草稿 #${index + 1} ${shot.prompt.take(200)}；机位 ${shot.cameraNotes.take(120)}；" +
+                    "秒数 ${shot.suggestedSeconds ?: "待定"}；素材 ${shot.referenceAssetIds.take(8).joinToString()}；" +
+                    "模型 ${shot.workflowPath.orEmpty().take(140)}")
+            }
+        }
     }
 
     /** Deterministic checks for a suggestion before it can mutate the project. */

@@ -13,7 +13,7 @@ object ReuseValueMapper {
 
     data class Result(val values: Map<String, String>, val unmapped: Int)
 
-    private enum class Role { TEXT_POSITIVE, TEXT_NEGATIVE, SEED, IMAGE, AUDIO, PARAM }
+    private enum class Role { TEXT_POSITIVE, TEXT_NEGATIVE, SEED, IMAGE, AUDIO, VIDEO, PARAM }
 
     private data class SourceValue(
         val key: String,
@@ -73,7 +73,7 @@ object ReuseValueMapper {
             return normalize(source.input) == normalize(target.input)
         }
         if (source.kind != null && source.kind != target.kind) return false
-        if (target.kind == FieldKind.IMAGE || target.kind == FieldKind.AUDIO) {
+        if (target.kind.isMedia) {
             val cloudValue = source.value.startsWith("local:") ||
                 source.value.startsWith("http://") ||
                 source.value.startsWith("https://") ||
@@ -90,12 +90,14 @@ object ReuseValueMapper {
             FieldKind.SEED -> Role.SEED
             FieldKind.IMAGE -> Role.IMAGE
             FieldKind.AUDIO -> Role.AUDIO
+            FieldKind.VIDEO -> Role.VIDEO
             FieldKind.PARAM -> Role.PARAM
             null -> {
                 val text = normalize("$input $label")
                 when {
                     looksNegative(input, label) -> Role.TEXT_NEGATIVE
                     text.contains("seed") -> Role.SEED
+                    text.contains("video") -> Role.VIDEO
                     text.contains("image") || text.contains("img") ||
                         text.contains("frame") || text.contains("reference") -> Role.IMAGE
                     text.contains("audio") || text.contains("sound") || text.contains("voice") -> Role.AUDIO

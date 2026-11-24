@@ -32,6 +32,7 @@ import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.foundation.Image
@@ -81,6 +82,7 @@ fun DirectorScreen(
     val planState by viewModel.planState.collectAsState()
     var visionConfirmation by remember { mutableStateOf<Pair<String, String>?>(null) }
     var editingPlanIndex by remember { mutableStateOf<Int?>(null) }
+    var revision by rememberSaveable(projectId) { mutableStateOf("") }
     LaunchedEffect(projectId) { viewModel.loadContinuity(projectId) }
     DisposableEffect(viewModel) { onDispose { viewModel.clearContinuity() } }
 
@@ -321,6 +323,30 @@ fun DirectorScreen(
                     )
                 }
             } else {
+                item("plan-revision") {
+                    IrisCard {
+                        IrisTextField(
+                            value = revision,
+                            onValueChange = { revision = it.take(1_200) },
+                            label = stringResource(R.string.studio_plan_revision),
+                            modifier = Modifier.fillMaxWidth(),
+                        )
+                        Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
+                            TextButton(
+                                onClick = {
+                                    viewModel.suggestShotPlan(projectId, revision)
+                                    revision = ""
+                                },
+                                enabled = revision.isNotBlank(),
+                            ) { Text(stringResource(R.string.studio_plan_request_revision)) }
+                            if (planState.previousSuggestions.isNotEmpty()) {
+                                TextButton(onClick = viewModel::restorePreviousPlan) {
+                                    Text(stringResource(R.string.studio_plan_previous))
+                                }
+                            }
+                        }
+                    }
+                }
                 item("plan-duration-summary") {
                     val proposedSeconds = planState.suggestions.withIndex()
                         .filter { it.index in planState.selected }

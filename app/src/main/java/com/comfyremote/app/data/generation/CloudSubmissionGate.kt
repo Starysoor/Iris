@@ -67,6 +67,7 @@ object CloudSubmissionPolicy {
 class CloudSubmissionGate(
     private val settings: AppSettingsStore,
     private val manager: GenerationManager,
+    private val validate: (List<GenerationRequest>) -> Unit,
 ) {
     data class Pending(
         val confirmation: CloudConfirmation,
@@ -83,6 +84,7 @@ class CloudSubmissionGate(
         priceLabel: String? = null,
     ): List<String> = lock.withLock {
         if (requests.isEmpty()) return@withLock emptyList()
+        validate(requests)
         if (CloudSubmissionPolicy.needsConfirmation(requests, settings.settings.value.confirmCloudSubmit)) {
             val decision = CompletableDeferred<Boolean>()
             _pending.value = Pending(CloudSubmissionPolicy.confirmation(requests, priceLabel), decision)
@@ -92,6 +94,7 @@ class CloudSubmissionGate(
                 _pending.value = null
             }
             if (!approved) return@withLock emptyList()
+            validate(requests)
         }
         if (requests.size == 1) {
             listOf(manager.submit(requests.single()))

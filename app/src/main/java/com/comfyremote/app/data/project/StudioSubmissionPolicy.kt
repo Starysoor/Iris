@@ -1,13 +1,11 @@
-package com.comfyremote.app.feature.tasks
+package com.comfyremote.app.data.project
 
+import com.comfyremote.app.data.cloud.CloudSpendEntry
 import com.comfyremote.app.data.generation.GenerationRequest
 import com.comfyremote.app.data.generation.GenerationTask
-import com.comfyremote.app.data.cloud.CloudSpendEntry
-import com.comfyremote.app.data.project.BudgetGate
-import com.comfyremote.app.data.project.taskCostStats
 
-/** Budget and shot-state preflight shared by single and batch retries in Tasks. */
-internal object TasksRetryPolicy {
+/** Budget and shot-state preflight for all Studio submissions. */
+internal object StudioSubmissionPolicy {
     data class ProjectInfo(val budget: Double?, val shotStatuses: Map<String, String>)
 
     sealed interface Rejection {
@@ -27,10 +25,17 @@ internal object TasksRetryPolicy {
             .groupBy { it.storyboardProjectId.orEmpty() }
         for ((projectId, projectRequests) in byProject) {
             val context = projectInfo(projectId) ?: return Rejection.MissingProject(projectId)
+            val occupiedStages = existingTasks.asSequence()
+                .filter { it.isActive && it.request.storyboardProjectId == projectId }
+                .mapNotNull { task ->
+                    task.request.storyboardShotId?.let { it to (task.request.studioStageKind ?: "video") }
+                }
+                .toMutableSet()
             for (request in projectRequests) {
                 val shotId = request.storyboardShotId ?: continue
                 val status = context.shotStatuses[shotId] ?: return Rejection.MissingShot(projectId, shotId)
-                if (status == "running") return Rejection.BusyShot(projectId, shotId)
+                val stage = shotId to (request.studioStageKind ?: "video")
+                if (status == "running" || !occupiedStages.add(stage)) return Rejection.BusyShot(projectId, shotId)
             }
             val spent = taskCostStats(existingTasks, projectId, ledger).costSum
             val newCost = projectRequests.sumOf { it.estimatedCloudCost?.toDouble() ?: 0.0 }

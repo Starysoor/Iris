@@ -8,14 +8,18 @@ import com.comfyremote.app.data.reference.inferReferenceRole
 import com.comfyremote.app.data.repository.WorkflowCapability
 import com.comfyremote.app.data.repository.WorkflowCompatibilityIssue
 import com.comfyremote.app.data.repository.WorkflowInsight
+import okhttp3.HttpUrl.Companion.toHttpUrlOrNull
 import org.json.JSONObject
 import kotlin.random.Random
 
 /** Maps AutoDL `input_rules` onto the same editable fields the local UI uses. */
 object CloudWorkflowMapping {
 
+    internal fun supports(rule: CloudInputRule): Boolean =
+        rule.isMedia || rule.isText || rule.isSeed || rule.type in setOf("integer", "number", "boolean", "enum")
+
     fun fields(spec: CloudWorkflowSpec): List<PromptField> = spec.rules.mapNotNull { rule ->
-        val label = labelFor(rule.name)
+        val label = rule.label.ifBlank { labelFor(rule.name) }
         val value = rule.effectiveDefault.orEmpty()
         when {
             rule.isText -> PromptField(
@@ -51,12 +55,12 @@ object CloudWorkflowMapping {
                     inferReferenceRole(rule.name, label)
                 },
             )
-            rule.isAudio -> PromptField(
+            rule.isAudio || rule.isVideo -> PromptField(
                 key = rule.name,
                 nodeId = "cloud",
                 input = rule.name,
                 label = label,
-                kind = FieldKind.AUDIO,
+                kind = if (rule.isVideo) FieldKind.VIDEO else FieldKind.AUDIO,
                 value = value,
                 required = rule.required,
             )
@@ -105,22 +109,16 @@ object CloudWorkflowMapping {
                 options = rule.options,
                 required = rule.required,
             )
-            else -> null // video inputs are not editable yet
+            else -> null
         }
     }
 
     fun warnings(spec: CloudWorkflowSpec): List<String> {
-        val out = mutableListOf<String>()
-        val unsupportedRequired = spec.rules.filter { it.isVideo && it.required }
-        if (unsupportedRequired.isNotEmpty()) {
-            out += "此工作流需要视频素材输入，当前版本暂不支持，无法提交"
-        } else if (spec.rules.any { it.isVideo }) {
-            out += "此工作流支持视频参考；当前版本会忽略这些可选素材"
+        return listOfNotNull(spec.unavailableReason.takeIf(String::isNotBlank)) + spec.rules.filterNot(::supports).map { rule ->
+            val type = "${rule.name} (${rule.type})"
+            if (rule.required) "尚未支持的必填参数 $type，无法提交"
+            else "尚未支持的可选参数 $type"
         }
-        if (spec.id.contains("Wan2.2", ignoreCase = true)) {
-            out += "Wan2.2 系列将于 2026-11-10 停用，请尽快切换到 MiniMax-H3 等新模型"
-        }
-        return out
     }
 
     fun analyze(
@@ -133,11 +131,12 @@ object CloudWorkflowMapping {
         when (spec.kind) {
             "video" -> {
                 capabilities += WorkflowCapability.VIDEO
+                if (fields.any { it.kind == FieldKind.VIDEO }) capabilities += WorkflowCapability.VIDEO_REFERENCE
                 if (imageFields.isNotEmpty()) capabilities += WorkflowCapability.IMG2VIDEO
-                else capabilities += WorkflowCapability.TXT2VIDEO
+                else if (WorkflowCapability.VIDEO_REFERENCE !in capabilities) capabilities += WorkflowCapability.TXT2VIDEO
             }
             "audio" -> capabilities += WorkflowCapability.AUDIO
-            else -> if (imageFields.isNotEmpty()) capabilities += WorkflowCapability.IMG2IMG
+            "image" -> if (imageFields.isNotEmpty()) capabilities += WorkflowCapability.IMG2IMG
                 else capabilities += WorkflowCapability.TXT2IMG
         }
         if (fields.any { it.kind == FieldKind.AUDIO }) capabilities += WorkflowCapability.AUDIO
@@ -145,18 +144,23 @@ object CloudWorkflowMapping {
 
         val issues = mutableListOf<WorkflowCompatibilityIssue>()
         warnings(spec).forEach { issue ->
-            issues += WorkflowCompatibilityIssue(issue, blocking = issue.contains("无法提交"))
+            issues += WorkflowCompatibilityIssue(issue, blocking = issue == spec.unavailableReason || issue.contains("无法提交"))
         }
-        fields.filter { it.required }.forEach { field ->
+        fields.forEach { field ->
             val current = values[field.key] ?: field.value
-            if (current.isBlank()) {
+            if (field.required && current.isBlank() && field.kind != FieldKind.SEED) {
                 val kind = when (field.kind) {
                     FieldKind.IMAGE -> "参考图片"
                     FieldKind.AUDIO -> "参考音频"
+                    FieldKind.VIDEO -> "参考视频"
                     FieldKind.TEXT -> "提示词"
                     else -> "参数"
                 }
                 issues += WorkflowCompatibilityIssue("${field.label}: $kind 不能为空", blocking = true)
+            } else if (current.isNotBlank() && field.kind != FieldKind.SEED) {
+                CloudPromptBuilder.valueProblem(spec.rule(field.input), field, current)?.let { message ->
+                    issues += WorkflowCompatibilityIssue(message, blocking = true)
+                }
             }
         }
         return WorkflowInsight(capabilities, issues.distinctBy { it.message })
@@ -191,6 +195,7 @@ object CloudWorkflowMapping {
         name == "style" -> "风格 · Style"
         name.startsWith("ref_image_") -> "参考图 ${name.removePrefix("ref_image_").toIntOrNull()?.plus(1) ?: ""} · Reference"
         name.startsWith("ref_audio_") -> "参考音频 ${name.removePrefix("ref_audio_").toIntOrNull()?.plus(1) ?: ""} · Audio"
+        name == "ref_video" || name == "video" -> "参考视频 · Reference video"
         name.startsWith("ref_video_") -> "参考视频 ${name.removePrefix("ref_video_").toIntOrNull()?.plus(1) ?: ""} · Video"
         else -> name
     }
@@ -206,21 +211,37 @@ object CloudPromptBuilder {
         randomSeed: Boolean,
         resolveImage: (String) -> String?,
     ): Pair<JSONObject, Map<String, String>> {
+        if (spec.unavailableReason.isNotBlank()) throw PromptValidationException(spec.unavailableReason)
         val body = JSONObject()
         val seeds = HashMap<String, String>()
+        val fieldInputs = fields.mapTo(hashSetOf(), PromptField::input)
+        val unsupported = spec.rules.filter { it.required &&
+            (!CloudWorkflowMapping.supports(it) || it.name !in fieldInputs) }
+        if (unsupported.isNotEmpty()) {
+            throw PromptValidationException("缺少必填参数 ${unsupported.joinToString { it.name }}，请重新打开工作流")
+        }
         for (field in fields) {
-            val raw = values[field.key] ?: field.value
+            val rule = spec.rule(field.input)
+            val supplied = values[field.key] ?: field.value
+            val raw = if (field.kind == FieldKind.TEXT) supplied else supplied.trim()
+            if (raw.isNotBlank() && field.kind != FieldKind.SEED) {
+                valueProblem(rule, field, raw)?.let { throw PromptValidationException(it) }
+            }
             when (field.kind) {
                 FieldKind.TEXT -> {
                     if (raw.isNotBlank()) body.put(field.input, raw)
                     else if (field.required) throw PromptValidationException("${field.label} 不能为空")
                 }
-                FieldKind.IMAGE, FieldKind.AUDIO -> {
+                FieldKind.IMAGE, FieldKind.AUDIO, FieldKind.VIDEO -> {
                     if (raw.isNotBlank()) {
                         // A filled slot is a user intent. Never silently drop it and
                         // submit a cheaper request with missing references.
-                        val resolved = resolveImage(raw)
+                        val resolved = raw.takeIf { it.toHttpUrlOrNull() != null || it.startsWith("data:") }
+                            ?: resolveImage(raw)
                             ?: throw PromptValidationException("${field.label} 读取失败，请重新选择素材")
+                        mediaProblem(rule, field, resolved, allowLocal = false)?.let {
+                            throw PromptValidationException(it)
+                        }
                         body.put(field.input, resolved)
                     } else if (field.required) {
                         throw PromptValidationException("${field.label} 不能为空")
@@ -242,19 +263,15 @@ object CloudPromptBuilder {
                 FieldKind.PARAM -> when (field.ptype) {
                     "int" -> {
                         val value = raw.toLongOrNull()
-                        if (value != null) {
-                            enforceRange(spec, field, value.toDouble())
-                            body.put(field.input, value)
-                        } else if (field.required) {
+                        if (value != null) body.put(field.input, value)
+                        else if (field.required) {
                             throw PromptValidationException("${field.label} 需要整数")
                         }
                     }
                     "float" -> {
                         val value = raw.toDoubleOrNull()
-                        if (value != null) {
-                            enforceRange(spec, field, value)
-                            body.put(field.input, value)
-                        } else if (field.required) {
+                        if (value != null) body.put(field.input, value)
+                        else if (field.required) {
                             throw PromptValidationException("${field.label} 需要数字")
                         }
                     }
@@ -268,26 +285,47 @@ object CloudPromptBuilder {
                 }
             }
         }
-        val unsupported = spec.rules.filter { it.isVideo && it.required }
-        if (unsupported.isNotEmpty()) {
-            throw PromptValidationException(
-                "此工作流需要视频素材（${unsupported.joinToString { it.name }}），当前版本暂不支持"
-            )
-        }
         return body to seeds
     }
 
-    /** Mirrors AutoDL's declared min/max before the request is billed. */
-    private fun enforceRange(spec: CloudWorkflowSpec, field: PromptField, value: Double) {
-        val rule = spec.rule(field.input) ?: return
-        val min = rule.min
-        val max = rule.max
-        if (min != null && value < min) {
-            throw PromptValidationException("${field.label} 不能小于 ${formatLimit(min)}")
+    internal fun valueProblem(rule: CloudInputRule?, field: PromptField, value: String): String? {
+        if (field.kind.isMedia) return mediaProblem(rule, field, value.trim(), allowLocal = true)
+        if (field.kind == FieldKind.TEXT) {
+            val length = value.codePointCount(0, value.length)
+            rule?.minLength?.takeIf { length < it }?.let { return "${field.label} 至少需要 $it 个字符" }
+            rule?.maxLength?.takeIf { length > it }?.let { return "${field.label} 最多支持 $it 个字符" }
+            return null
         }
-        if (max != null && value > max) {
-            throw PromptValidationException("${field.label} 不能大于 ${formatLimit(max)}")
+        val numeric = when (field.ptype) {
+            "int" -> value.trim().toLongOrNull()?.toDouble() ?: return "${field.label} 需要整数"
+            "float" -> value.trim().toDoubleOrNull()?.takeIf(Double::isFinite)
+                ?: return "${field.label} 需要数字"
+            "bool" -> return if (value.trim().lowercase() in setOf("true", "false")) null
+                else "${field.label} 需要布尔值"
+            "combo" -> return if (field.options.isEmpty() || value.trim() in field.options) null
+                else "${field.label} 的当前选项不在服务商支持的范围内"
+            else -> return null
         }
+        rule?.min?.takeIf { numeric < it }?.let { return "${field.label} 不能小于 ${formatLimit(it)}" }
+        rule?.max?.takeIf { numeric > it }?.let { return "${field.label} 不能大于 ${formatLimit(it)}" }
+        return null
+    }
+
+    private fun mediaProblem(
+        rule: CloudInputRule?,
+        field: PromptField,
+        value: String,
+        allowLocal: Boolean,
+    ): String? {
+        if (value.toHttpUrlOrNull() != null || (allowLocal && value.startsWith(CloudInputStore.PREFIX))) return null
+        val mime = value.takeIf { it.startsWith("data:") && ',' in it }
+            ?.substringAfter("data:")?.substringBefore(';')?.substringBefore(',')?.lowercase()
+        val type = field.kind.mediaType ?: return null
+        val accepted = rule?.acceptedMediaTypes.orEmpty()
+        if (mime?.startsWith("$type/") == true &&
+            (accepted.isEmpty() || accepted.any { it.equals(mime, true) || it == "$type/*" })) return null
+        return "${field.label} 需要可用的媒体文件或 HTTP(S) 链接" +
+            accepted.takeIf { it.isNotEmpty() }?.joinToString(", ", "（", "）").orEmpty()
     }
 
     private fun formatLimit(value: Double): String =

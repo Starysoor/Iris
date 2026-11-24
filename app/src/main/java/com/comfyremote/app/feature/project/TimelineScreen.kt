@@ -1,5 +1,10 @@
 package com.comfyremote.app.feature.project
 
+import android.Manifest
+import android.content.pm.PackageManager
+import android.os.Build
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.gestures.detectDragGesturesAfterLongPress
 import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.layout.Arrangement
@@ -39,6 +44,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.produceState
 import androidx.compose.runtime.rememberUpdatedState
 import androidx.compose.runtime.setValue
@@ -63,6 +69,7 @@ import androidx.media3.ui.PlayerView
 import com.comfyremote.app.R
 import com.comfyremote.app.data.media.AudioWaveformExtractor
 import com.comfyremote.app.data.project.Timeline
+import com.comfyremote.app.data.project.ProjectExportController
 import com.comfyremote.app.data.project.ExportPlanBuilder
 import com.comfyremote.app.data.project.VideoExporter
 import com.comfyremote.app.data.project.TimelineClip
@@ -109,8 +116,16 @@ fun TimelineScreen(
     var addingFor by remember { mutableStateOf<TrackKind?>(null) }
     var editing by remember { mutableStateOf<Pair<TrackKind, TimelineClip>?>(null) }
     var previewing by remember { mutableStateOf(false) }
-    var exportSheet by remember { mutableStateOf(false) }
+    var exportSheet by rememberSaveable(projectId) { mutableStateOf(false) }
     val exportState by viewModel.exportState.collectAsState()
+    val exportForProject = exportState.takeIf { it.projectId == projectId }
+    val context = LocalContext.current
+    val notificationPermission = rememberLauncherForActivityResult(ActivityResultContracts.RequestPermission()) {}
+    var askedPermission by rememberSaveable { mutableStateOf(false) }
+
+    LaunchedEffect(projectId, exportForProject?.projectId) {
+        if (exportForProject != null) exportSheet = true
+    }
 
     LaunchedEffect(project?.id) {
         if (project != null && project.timeline == null) viewModel.ensureTimeline(projectId)
@@ -134,10 +149,20 @@ fun TimelineScreen(
                     }
                     IconButton(
                         onClick = {
-                            viewModel.startExport(projectId)
-                            exportSheet = true
+                            if (exportForProject != null) {
+                                exportSheet = true
+                            } else if (viewModel.startExport(projectId)) {
+                                exportSheet = true
+                                if (!askedPermission && Build.VERSION.SDK_INT >= 33 &&
+                                    context.checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) != PackageManager.PERMISSION_GRANTED
+                                ) {
+                                    askedPermission = true
+                                    notificationPermission.launch(Manifest.permission.POST_NOTIFICATIONS)
+                                }
+                            }
                         },
-                        enabled = project?.timeline?.videoTrack?.isNotEmpty() == true,
+                        enabled = project?.timeline?.videoTrack?.isNotEmpty() == true &&
+                            (exportState !is ProjectExportController.State.Running || exportForProject != null),
                     ) {
                         Icon(Icons.Outlined.Movie, stringResource(R.string.proj_export_start))
                     }
@@ -261,12 +286,12 @@ fun TimelineScreen(
             onDismiss = { previewing = false },
         )
     }
-    if (exportSheet) {
+    if (exportSheet && exportForProject != null) {
         ExportDialog(
-            state = exportState,
+            state = exportForProject,
             onDismiss = {
                 exportSheet = false
-                viewModel.dismissExport()
+                viewModel.dismissExport(projectId)
             },
             onCancel = { viewModel.cancelExport() },
             onRetry = { viewModel.startExport(projectId) },
@@ -278,7 +303,7 @@ fun TimelineScreen(
 /** Export progress / result dialog; cancellation and retry are explicit. */
 @Composable
 private fun ExportDialog(
-    state: ProjectViewModel.ExportState,
+    state: ProjectExportController.State,
     onDismiss: () -> Unit,
     onCancel: () -> Unit,
     onRetry: () -> Unit,
@@ -291,7 +316,7 @@ private fun ExportDialog(
         text = {
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                 when (state) {
-                    is ProjectViewModel.ExportState.Running -> {
+                    is ProjectExportController.State.Running -> {
                         Text(stringResource(R.string.proj_export_running, (state.progress * 100).toInt()))
                         IrisProgressBar(progress = state.progress)
                         Text(
@@ -300,7 +325,7 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    is ProjectViewModel.ExportState.Succeeded -> {
+                    is ProjectExportController.State.Succeeded -> {
                         Text(stringResource(R.string.proj_export_done))
                         Row(horizontalArrangement = Arrangement.spacedBy(Spacing.sm)) {
                             TextAction(stringResource(R.string.proj_export_share), onClick = {
@@ -316,7 +341,7 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    is ProjectViewModel.ExportState.Failed -> {
+                    is ProjectExportController.State.Failed -> {
                         Text(state.message, color = MaterialTheme.colorScheme.error)
                         Text(
                             stringResource(R.string.proj_export_failed_note),
@@ -324,16 +349,16 @@ private fun ExportDialog(
                             color = MaterialTheme.colorScheme.onSurfaceVariant,
                         )
                     }
-                    ProjectViewModel.ExportState.Idle -> Text(stringResource(R.string.proj_export_start))
+                    ProjectExportController.State.Idle -> Text(stringResource(R.string.proj_export_start))
                 }
             }
         },
         confirmButton = {
             when (state) {
-                is ProjectViewModel.ExportState.Running -> TextButton(onClick = onCancel) {
+                is ProjectExportController.State.Running -> TextButton(onClick = onCancel) {
                     Text(stringResource(R.string.action_cancel))
                 }
-                is ProjectViewModel.ExportState.Failed -> TextButton(onClick = onRetry) {
+                is ProjectExportController.State.Failed -> TextButton(onClick = onRetry) {
                     Text(stringResource(R.string.proj_export_retry))
                 }
                 else -> {}

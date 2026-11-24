@@ -187,6 +187,31 @@ class CloudWorkflowTest {
     }
 
     @Test
+    fun videoInputsKeepOfficialFormatsAcrossSnapshotAndSubmitUrlOrTypedInlineMedia() = kotlinx.coroutines.runBlocking {
+        val data = JSONObject("""{
+            "data":{"uuid":"motion-transfer","name":"Motion transfer","price_type":"video_sec_cost",
+            "input_rules":{"ref_video":{"type":"video","required":true,"accept_types":["video/mp4","video/webm"]}}}
+        }""")
+        val parsed = CloudWorkflowParser.detail(data)
+        val snapshot = requireNotNull(CloudWorkflowSpec.fromJson(parsed.toJson()))
+        val fields = CloudWorkflowMapping.fields(snapshot)
+        assertEquals(com.comfyremote.app.FieldKind.VIDEO, fields.single().kind)
+        assertEquals(listOf("video/mp4", "video/webm"), snapshot.rule("ref_video")!!.acceptedMediaTypes)
+        val url = "https://example.test/reference.mp4?signature=abc"
+        val (remote, _) = CloudPromptBuilder.build(snapshot, fields, mapOf("ref_video" to url), false) { null }
+        assertEquals(url, remote.getString("ref_video"))
+        val webm = "data:video/webm;base64,AA=="
+        val (local, _) = CloudPromptBuilder.build(snapshot, fields, mapOf("ref_video" to "local:/tmp/ref.webm"), false) { webm }
+        assertEquals(webm, local.getString("ref_video"))
+        val wrongFormat = runCatching {
+            CloudPromptBuilder.build(snapshot, fields, mapOf("ref_video" to "local:/tmp/ref.mov"), false) {
+                "data:video/quicktime;base64,AA=="
+            }
+        }.exceptionOrNull()
+        assertTrue(wrongFormat is PromptValidationException)
+    }
+
+    @Test
     fun pricingTiersAndPerSecondMinimumAreParsedAndEstimated() {
         val detail = JSONObject().put("data", JSONObject()
             .put("uuid", "v2")

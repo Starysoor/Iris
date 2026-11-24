@@ -12,6 +12,7 @@ import androidx.compose.foundation.layout.PaddingValues
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
+import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.width
@@ -23,15 +24,24 @@ import androidx.compose.material.icons.outlined.AutoAwesome
 import androidx.compose.material.icons.outlined.Close
 import androidx.compose.material.icons.outlined.Image
 import androidx.compose.material.icons.outlined.PhotoCamera
+import androidx.compose.material.icons.outlined.VideoFile
+import androidx.compose.material.icons.outlined.BrokenImage
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.DropdownMenu
+import androidx.compose.material3.DropdownMenuItem
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.produceState
+import androidx.compose.runtime.remember
+import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
@@ -44,6 +54,8 @@ import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
+import com.comfyremote.app.FieldKind
+import com.comfyremote.app.PromptField
 import com.comfyremote.app.ui.LocalAppSettings
 import com.comfyremote.app.ui.Sizes
 import com.comfyremote.app.ui.components.IrisCard
@@ -66,13 +78,20 @@ internal fun ReferenceImageField(
     onClear: () -> Unit,
     onVision: () -> Unit,
 ) {
+    val referenceName = value
+    val preview by produceState<Pair<Boolean, Bitmap?>>(false to null, referenceName) {
+        this.value = false to null
+        if (referenceName.isNotBlank()) this.value = true to loadBitmap(referenceName)
+    }
+    val previewUnavailable = value.isNotBlank() && preview.first && preview.second == null
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Row(horizontalArrangement = Arrangement.spacedBy(8.dp), verticalAlignment = Alignment.CenterVertically) {
             ImageSlotTile(
                 name = value,
                 uploading = upload?.phase == ImageUploadPhase.UPLOADING,
-                loadBitmap = loadBitmap,
+                bitmap = preview.second,
+                unavailable = previewUnavailable,
                 onPick = onPick,
                 onClear = onClear,
             )
@@ -81,6 +100,12 @@ internal fun ReferenceImageField(
         if (upload?.phase == ImageUploadPhase.FAILED) {
             Text(
                 upload.message ?: stringResource(R.string.gen_upload_failed),
+                color = MaterialTheme.colorScheme.error,
+                style = MaterialTheme.typography.bodySmall,
+            )
+        } else if (previewUnavailable) {
+            Text(
+                stringResource(R.string.gen_image_preview_unavailable, audioDisplayName(value.substringBefore('?')).take(80)),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
@@ -117,17 +142,18 @@ private fun Modifier.tileModifier(onClick: () -> Unit): Modifier {
 private fun ImageSlotTile(
     name: String,
     uploading: Boolean,
-    loadBitmap: suspend (String) -> Bitmap?,
+    bitmap: Bitmap?,
+    unavailable: Boolean,
     onPick: () -> Unit,
     onClear: () -> Unit,
 ) {
     Box(Modifier.tileModifier(onPick), contentAlignment = Alignment.Center) {
         if (name.isNotBlank()) {
-            val bitmap by produceState<Bitmap?>(null, name) { value = loadBitmap(name) }
             Box(Modifier.fillMaxSize().background(MaterialTheme.colorScheme.surfaceContainerHigh), contentAlignment = Alignment.Center) {
-                val loaded = bitmap
-                if (loaded != null) {
-                    Image(loaded.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                if (bitmap != null) {
+                    Image(bitmap.asImageBitmap(), null, Modifier.fillMaxSize(), contentScale = ContentScale.Crop)
+                } else if (unavailable) {
+                    TileLabel(Icons.Outlined.BrokenImage, stringResource(R.string.gen_repick_image))
                 } else {
                     Icon(Icons.Outlined.Image, contentDescription = null, tint = MaterialTheme.colorScheme.onSurfaceVariant)
                 }
@@ -172,59 +198,116 @@ private fun TileLabel(icon: ImageVector, caption: String) {
 
 /** One audio input: current file (tap to preview), clear, and the picker. */
 @Composable
-internal fun AudioReferenceField(
-    label: String,
+internal fun TimedMediaReferenceField(
+    field: PromptField,
     value: String,
+    cloud: Boolean,
+    formats: List<String>,
     upload: ImageUploadStatus?,
     running: Boolean,
     onPreview: (String) -> Unit,
-    onClear: () -> Unit,
+    onChange: (String) -> Unit,
     onPick: () -> Unit,
 ) {
     val compact = LocalAppSettings.current.compactUi
+    val video = field.kind == FieldKind.VIDEO
+    val uploading = upload?.phase == ImageUploadPhase.UPLOADING
+    var showUrl by remember { mutableStateOf(false) }
+    var url by remember { mutableStateOf("") }
+    var showServerFiles by remember { mutableStateOf(false) }
     Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text(field.label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        if (formats.isNotEmpty()) {
+            Text(formats.joinToString(" · "), style = MaterialTheme.typography.bodySmall)
+        }
         IrisCard(contentPadding = PaddingValues(horizontal = 12.dp, vertical = if (compact) 6.dp else 10.dp)) {
             Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(10.dp)) {
                 if (value.isNotBlank()) {
                     val path = value.removePrefix("local:")
-                    MediaThumbnail(
-                        path = path,
-                        size = Sizes.thumbSm,
-                        modifier = Modifier.clip(MaterialTheme.shapes.small).clickable { onPreview(path) },
-                    )
+                    if (value.startsWith("local:")) {
+                        MediaThumbnail(
+                            path = path,
+                            size = Sizes.thumbSm,
+                            modifier = Modifier.clip(MaterialTheme.shapes.small).clickable { onPreview(path) },
+                        )
+                    }
                     Text(
-                        audioDisplayName(value),
+                        if (value.startsWith("data:")) stringResource(R.string.gen_inline_media)
+                        else audioDisplayName(value.substringBefore('?')),
                         style = MaterialTheme.typography.bodySmall,
                         maxLines = 1,
                         overflow = TextOverflow.Ellipsis,
                         modifier = Modifier.weight(1f),
                     )
-                    IconButton(onClick = onClear) {
+                    IconButton(onClick = { onChange("") }, enabled = !running && !uploading) {
                         Icon(Icons.Outlined.Close, stringResource(R.string.action_clear), tint = MaterialTheme.colorScheme.onSurfaceVariant)
                     }
                 } else {
                     Text(
-                        stringResource(R.string.gen_no_audio),
+                        stringResource(if (video) R.string.gen_no_video else R.string.gen_no_audio),
                         style = MaterialTheme.typography.bodySmall,
                         color = MaterialTheme.colorScheme.onSurfaceVariant,
                         modifier = Modifier.weight(1f),
                     )
                 }
                 IrisTonalButton(
-                    text = stringResource(R.string.gen_pick_audio),
+                    text = stringResource(if (video) R.string.gen_pick_video else R.string.gen_pick_audio),
                     onClick = onPick,
-                    enabled = !running,
-                    icon = Icons.Outlined.AudioFile,
+                    enabled = !running && !uploading,
+                    icon = if (video) Icons.Outlined.VideoFile else Icons.Outlined.AudioFile,
                 )
+            }
+            if (uploading) Text(stringResource(R.string.gen_media_uploading), style = MaterialTheme.typography.bodySmall)
+            if (cloud) {
+                TextButton(enabled = !running && !uploading, onClick = {
+                    url = value.takeIf { it.startsWith("https://") || it.startsWith("http://") }.orEmpty()
+                    showUrl = true
+                }) { Text(stringResource(R.string.gen_media_url)) }
+            } else if (field.options.isNotEmpty()) {
+                Box {
+                    TextButton(
+                        enabled = !running && !uploading,
+                        onClick = { showServerFiles = true },
+                    ) { Text(stringResource(R.string.gen_server_media)) }
+                    DropdownMenu(expanded = showServerFiles, onDismissRequest = { showServerFiles = false }) {
+                        field.options.forEach { option ->
+                            DropdownMenuItem(text = { Text(option) }, onClick = {
+                                onChange(option)
+                                showServerFiles = false
+                            })
+                        }
+                    }
+                }
             }
         }
         if (upload?.phase == ImageUploadPhase.FAILED) {
             Text(
-                upload.message ?: stringResource(R.string.gen_audio_failed),
+                upload.message ?: stringResource(R.string.gen_media_failed),
                 color = MaterialTheme.colorScheme.error,
                 style = MaterialTheme.typography.bodySmall,
             )
         }
+    }
+    if (showUrl) {
+        AlertDialog(
+            onDismissRequest = { showUrl = false },
+            title = { Text(stringResource(R.string.gen_media_url)) },
+            text = {
+                OutlinedTextField(
+                    value = url,
+                    onValueChange = { url = it },
+                    label = { Text("URL") },
+                    singleLine = true,
+                    modifier = Modifier.fillMaxWidth(),
+                )
+            },
+            confirmButton = {
+                TextButton(enabled = url.isNotBlank(), onClick = {
+                    onChange(url.trim())
+                    showUrl = false
+                }) { Text(stringResource(R.string.board_save)) }
+            },
+            dismissButton = { TextButton(onClick = { showUrl = false }) { Text(stringResource(R.string.action_cancel)) } },
+        )
     }
 }

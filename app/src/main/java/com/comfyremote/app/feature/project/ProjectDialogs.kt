@@ -101,15 +101,16 @@ internal fun WorkflowPicker(
 }
 
 /**
- * Reusable searchable video workflow selector. Only confirmed catalogue entries
+ * Reusable searchable workflow selector. Only confirmed catalogue entries
  * are offered; we do not guess capabilities from model names.
  */
 @Composable
-private fun SearchableStudioWorkflows(
+internal fun SearchableStudioWorkflows(
     workflows: List<ProjectWorkflowOption>,
     selectedPath: String?,
     onSelect: (String) -> Unit,
     onDefault: (() -> Unit)?,
+    defaultLabel: Int = R.string.proj_no_default_workflow,
 ) {
     var query by remember { mutableStateOf("") }
     var provider by remember { mutableStateOf("") }
@@ -118,7 +119,8 @@ private fun SearchableStudioWorkflows(
         (provider.isBlank() || option.providerLabel == provider) &&
             (query.isBlank() || option.name.contains(query, ignoreCase = true) ||
                 option.providerLabel.contains(query, ignoreCase = true) ||
-                option.path.contains(query, ignoreCase = true))
+                option.workflowId.contains(query, ignoreCase = true) ||
+                option.description.contains(query, ignoreCase = true))
     }
     Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
         IrisTextField(
@@ -151,7 +153,7 @@ private fun SearchableStudioWorkflows(
             onDefault?.let { action ->
                 TextButton(onClick = action) {
                     Text((if (selectedPath.isNullOrBlank()) "✓ " else "") +
-                        stringResource(R.string.proj_no_default_workflow))
+                        stringResource(defaultLabel))
                 }
             }
             if (results.isEmpty()) {
@@ -163,11 +165,21 @@ private fun SearchableStudioWorkflows(
             }
             results.forEach { workflow ->
                 TextButton(onClick = { onSelect(workflow.path) }) {
-                    Text(
-                        (if (selectedPath == workflow.path) "✓ " else "") +
-                            "${workflow.providerLabel} · ${workflow.name}",
-                        maxLines = 2,
-                    )
+                    Column(Modifier.fillMaxWidth()) {
+                        Text(
+                            (if (selectedPath == workflow.path) "✓ " else "") +
+                                "${workflow.providerLabel} · ${workflow.name}",
+                            maxLines = 2,
+                        )
+                        if (workflow.name != workflow.workflowId) {
+                            Text(workflow.workflowId, style = MaterialTheme.typography.labelSmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant)
+                        }
+                        if (workflow.description.isNotBlank()) {
+                            Text(workflow.description, style = MaterialTheme.typography.bodySmall,
+                                maxLines = 2, overflow = TextOverflow.Ellipsis)
+                        }
+                    }
                 }
             }
         }
@@ -728,6 +740,7 @@ internal fun ShotWorkflowDialog(
                 selectedPath = currentPath,
                 onSelect = { path -> workflows.firstOrNull { it.path == path }?.let(onPick) },
                 onDefault = onFollowProject,
+                defaultLabel = R.string.studio_workspace_follow_project,
             )
         },
         confirmButton = {},

@@ -9,6 +9,7 @@ import java.io.OutputStream
 internal object BoundedMediaInput {
     const val MAX_IMAGE_BYTES = 32L * 1024 * 1024
     const val MAX_AUDIO_BYTES = 32L * 1024 * 1024
+    const val MAX_INLINE_VIDEO_BYTES = 32L * 1024 * 1024
 
     fun read(source: InputStream, limit: Long): ByteArray {
         val output = ByteArrayOutputStream()
