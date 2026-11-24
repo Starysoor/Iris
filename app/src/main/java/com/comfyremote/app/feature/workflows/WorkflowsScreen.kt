@@ -283,7 +283,7 @@ fun WorkflowsScreen(
             }
 
             val loading = if (cloud) state.cloudLoading else state.loading
-            val error = if (cloud) state.cloudError else state.error
+            val error = if (cloud) state.cloudListError else state.error
             when {
                 loading && state.visible.isEmpty() -> item("loading") {
                     Box(Modifier.fillMaxWidth().padding(Spacing.xl), contentAlignment = Alignment.Center) {

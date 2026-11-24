@@ -224,7 +224,7 @@ class AutoDlModelRepository(
         return "$base$path" to payload
     }
 
-    private fun wanResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun wanResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/ali/api/v1/tasks/$taskId", headers)
         val output = response.optJSONObject("output") ?: response
         val status = output.optString("task_status")
@@ -245,7 +245,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun miniMaxResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun miniMaxResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/minimax/v1/query/video_generation/$taskId", headers)
         val status = response.optString("status").ifBlank { response.optString("task_status") }
         return when (status.lowercase()) {
@@ -270,7 +270,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun seedanceResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun seedanceResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/ark/v3/contents/generations/tasks/$taskId", headers)
         return when (response.optString("status").lowercase()) {
             "succeeded", "success" -> {
@@ -293,7 +293,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun klingResult(submitUrl: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun klingResult(submitUrl: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$submitUrl/$taskId", headers)
         val data = response.optJSONObject("data") ?: response
         return when (data.optString("task_status").lowercase()) {

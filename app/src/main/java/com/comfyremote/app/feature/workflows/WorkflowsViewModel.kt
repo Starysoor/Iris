@@ -97,6 +97,9 @@ data class WorkflowsUiState(
 
     val selectedCloudProvider: CloudProviderCard?
         get() = selectedCloudProviderId?.let { id -> cloudProviderCards.firstOrNull { it.id == id } }
+
+    val cloudListError: String?
+        get() = if (selectedCloudProviderId == null) cloudError else selectedCloudProvider?.error
 }
 
 data class CloudWorkflowSection(
