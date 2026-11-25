@@ -24,6 +24,7 @@ const KNOWN = {
   'SDXL-高清修复.json': 'sdxl_hires',
   'Anima-Aesthetic精调文生图.json': 'anima_aesthetic',
   'Anima-Turbo极速文生图.json': 'anima_turbo',
+  'Krea2-二次元.json': 'krea2_anime',
 };
 const map = [];
 let n = 0;

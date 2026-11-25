@@ -40,11 +40,13 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.asImageBitmap
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.res.pluralStringResource
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.text.input.KeyboardType
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.AiSkillDef
+import com.comfyremote.app.DynamicGroup
 import com.comfyremote.app.PromptField
 import com.comfyremote.app.R
 import com.comfyremote.app.data.generation.ErrorKind
@@ -55,6 +57,7 @@ import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.ui.AppStrings
 import com.comfyremote.app.ui.Iris
 import com.comfyremote.app.ui.IrisType
+import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.BannerTone
 import com.comfyremote.app.ui.components.ChipTone
 import com.comfyremote.app.ui.components.CollapsibleCard
@@ -66,6 +69,7 @@ import com.comfyremote.app.ui.components.IrisProgressBar
 import com.comfyremote.app.ui.components.IrisTextField
 import com.comfyremote.app.ui.components.StatusChip
 import com.comfyremote.app.ui.components.Stepper
+import com.comfyremote.app.ui.components.TextAction
 
 /* Stateless building blocks of the Generate screen. Each takes plain values and callbacks. */
 
@@ -370,6 +374,9 @@ internal fun AdvancedParamsCard(
     groupModelControls: Boolean,
     onToggle: () -> Unit,
     onChange: (key: String, value: String) -> Unit,
+    rowGroups: Collection<DynamicGroup> = emptySet(),
+    onAddRow: ((DynamicGroup) -> Unit)? = null,
+    onRemoveRow: ((DynamicGroup) -> Unit)? = null,
 ) {
     CollapsibleCard(
         title = stringResource(R.string.gen_advanced),
@@ -383,9 +390,9 @@ internal fun AdvancedParamsCard(
         val (modelFields, otherFields) = fields.partition { it.nodeId in modelNodes }
         if (modelFields.isNotEmpty()) {
             Text(stringResource(R.string.gen_model_parameters), style = MaterialTheme.typography.titleSmall)
-            ParameterGroups(modelFields, values, onChange)
+            ParameterGroups(modelFields, values, onChange, rowGroups, onAddRow, onRemoveRow)
         }
-        ParameterGroups(otherFields, values, onChange)
+        ParameterGroups(otherFields, values, onChange, rowGroups, onAddRow, onRemoveRow)
     }
 }
 
@@ -394,6 +401,9 @@ private fun ParameterGroups(
     fields: List<PromptField>,
     values: Map<String, String>,
     onChange: (String, String) -> Unit,
+    rowGroups: Collection<DynamicGroup> = emptySet(),
+    onAddRow: ((DynamicGroup) -> Unit)? = null,
+    onRemoveRow: ((DynamicGroup) -> Unit)? = null,
 ) {
     val groups = fields.groupBy(PromptField::nodeId)
     groups.forEach { (id, group) ->
@@ -404,6 +414,44 @@ private fun ParameterGroups(
             )
         }
         group.forEach { field -> ParamField(field, values[field.key] ?: field.value) { onChange(field.key, it) } }
+        // The row controls sit right below the rows they change.
+        rowGroups.filter { it.nodeId == id }.forEach { GroupRows(it, onAddRow, onRemoveRow) }
+    }
+    // A group without any row yet has no field to hang its controls on.
+    rowGroups.filter { dynamic -> fields.none { it.nodeId == dynamic.nodeId } }.forEach { dynamic ->
+        Text("${dynamic.title} · #${dynamic.nodeId}", style = MaterialTheme.typography.titleSmall)
+        GroupRows(dynamic, onAddRow, onRemoveRow)
+    }
+}
+
+/** Row count of a repeatable group such as a LoRA stack, with the actions that change it. */
+@Composable
+private fun GroupRows(
+    group: DynamicGroup,
+    onAddRow: ((DynamicGroup) -> Unit)?,
+    onRemoveRow: ((DynamicGroup) -> Unit)?,
+) {
+    Row(
+        Modifier.fillMaxWidth().padding(top = Spacing.xs, bottom = Spacing.sm),
+        verticalAlignment = Alignment.CenterVertically,
+    ) {
+        Text(
+            pluralStringResource(R.plurals.gen_group_rows, group.rows, group.heading, group.rows),
+            style = MaterialTheme.typography.labelMedium,
+            color = MaterialTheme.colorScheme.onSurfaceVariant,
+            modifier = Modifier.weight(1f),
+        )
+        // Rows saved in the workflow stay; a LoRA the user no longer wants can be switched off.
+        if (onRemoveRow != null && group.addedRows > 0) {
+            TextAction(
+                stringResource(R.string.gen_group_remove_row),
+                onClick = { onRemoveRow(group) },
+                color = MaterialTheme.colorScheme.error,
+            )
+        }
+        if (onAddRow != null && group.canAddRows) {
+            TextAction(stringResource(R.string.gen_group_add_row), onClick = { onAddRow(group) })
+        }
     }
 }
 

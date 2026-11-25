@@ -34,6 +34,7 @@ class WorkflowConverterTest {
         "sdxl_hires.json",
         "anima_aesthetic.json",
         "anima_turbo.json",
+        "krea2_anime.json",
     )
 
     @Test

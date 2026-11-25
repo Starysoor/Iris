@@ -46,6 +46,11 @@
     <string name="gen_refresh_definition">刷新工作流定义</string>
     <string name="gen_definition_refreshed">已刷新工作流定义</string>
     <string name="gen_model_parameters">模型与采样</string>
+    <plurals name="gen_group_rows">
+        <item quantity="other">%1$s 堆叠 · 共 %2$d 行</item>
+    </plurals>
+    <string name="gen_group_add_row">添加一行</string>
+    <string name="gen_group_remove_row">移除末行</string>
     <string name="gen_image_preview_unavailable">无法预览 %1$s，点击槽位重新选择。</string>
     <string name="gen_repick_image">重新选择</string>
     <string name="gen_image_missing">%1$s 需要重新选图，ComfyUI 服务器找不到 %2$s。</string>
