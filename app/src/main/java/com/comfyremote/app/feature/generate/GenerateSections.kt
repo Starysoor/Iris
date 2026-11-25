@@ -51,6 +51,7 @@ import com.comfyremote.app.data.generation.ErrorKind
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.repository.WorkflowInsight
+import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.ui.AppStrings
 import com.comfyremote.app.ui.Iris
 import com.comfyremote.app.ui.IrisType
@@ -366,6 +367,7 @@ internal fun AdvancedParamsCard(
     fields: List<PromptField>,
     values: Map<String, String>,
     expanded: Boolean,
+    groupModelControls: Boolean,
     onToggle: () -> Unit,
     onChange: (key: String, value: String) -> Unit,
 ) {
@@ -375,19 +377,15 @@ internal fun AdvancedParamsCard(
         onToggle = onToggle,
         badge = fields.size.toString(),
     ) {
-        ParameterGroups(fields, values, onChange)
-    }
-}
-
-@Composable
-internal fun ModelParametersCard(
-    fields: List<PromptField>,
-    values: Map<String, String>,
-    onChange: (String, String) -> Unit,
-) {
-    IrisCard {
-        Text(stringResource(R.string.gen_model_parameters), style = MaterialTheme.typography.titleMedium)
-        ParameterGroups(fields, values, onChange)
+        val modelNodes = if (groupModelControls) fields.asSequence()
+            .filter { WorkflowInsights.isModelSelection(it) || it.input in setOf("sampler_name", "scheduler") }
+            .map { it.nodeId }.toSet() else emptySet()
+        val (modelFields, otherFields) = fields.partition { it.nodeId in modelNodes }
+        if (modelFields.isNotEmpty()) {
+            Text(stringResource(R.string.gen_model_parameters), style = MaterialTheme.typography.titleSmall)
+            ParameterGroups(modelFields, values, onChange)
+        }
+        ParameterGroups(otherFields, values, onChange)
     }
 }
 

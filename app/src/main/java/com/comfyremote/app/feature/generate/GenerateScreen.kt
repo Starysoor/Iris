@@ -46,7 +46,6 @@ import androidx.compose.ui.res.stringResource
 import androidx.core.content.FileProvider
 import com.comfyremote.app.FieldKind
 import com.comfyremote.app.R
-import com.comfyremote.app.data.repository.WorkflowInsights
 import com.comfyremote.app.ui.LocalAppSettings
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.BannerTone
@@ -302,13 +301,6 @@ fun GenerateScreen(
                         )
                     }
 
-                    val modelFields = if (draft.isCloud) emptyList() else paramFields.filter {
-                        WorkflowInsights.isModelSelection(it) || it.input in setOf("sampler_name", "scheduler")
-                    }
-                    if (modelFields.isNotEmpty()) item("model-parameters") {
-                        ModelParametersCard(modelFields, draft.values, viewModel::updateValue)
-                    }
-
                     if (imageFields.isNotEmpty()) {
                         item("image-header") {
                             SectionHeader(stringResource(R.string.gen_reference_images)) {
@@ -379,12 +371,12 @@ fun GenerateScreen(
                         )
                     }
 
-                    val advancedFields = paramFields - modelFields.toSet()
-                    if (advancedFields.isNotEmpty()) item("advanced") {
+                    if (paramFields.isNotEmpty()) item("advanced") {
                         AdvancedParamsCard(
-                            fields = advancedFields,
+                            fields = paramFields,
                             values = draft.values,
                             expanded = advancedOpen,
+                            groupModelControls = !draft.isCloud,
                             onToggle = { advancedOpen = !advancedOpen },
                             onChange = viewModel::updateValue,
                         )

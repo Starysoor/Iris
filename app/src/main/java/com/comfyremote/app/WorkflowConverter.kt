@@ -67,6 +67,7 @@ object WorkflowConverter {
         val api = JSONObject()
         val fields = mutableListOf<PromptField>()
         val notes = mutableListOf<String>()
+        val availableLoras by lazy { loraOptions(info) }
 
         for (node in canvas.executableNodes()) {
             val n = node.raw
@@ -136,8 +137,12 @@ object WorkflowConverter {
                     is ComfyCanvas.Input.Link -> inputs.put(name, JSONArray().put(link.nodeId).put(link.output))
                     is ComfyCanvas.Input.Value -> inputs.put(name, wrapLiteral(link.value))
                     is ComfyCanvas.Input.Unresolved -> canvas.problems += "$title #$id · $name：${link.reason}"
-                    null -> namedWidgets?.opt(name)?.let { inputs.put(name, wrapLiteral(it)) }
+                    null -> (overrides[name] ?: namedWidgets?.opt(name))?.let { inputs.put(name, wrapLiteral(it)) }
                 }
+            }
+            if (type == PowerLoraWidgets.NODE_TYPE) {
+                PowerLoraWidgets.restoreInputs(widgets, namedWidgets, overrides, inputs)
+                fields += PowerLoraWidgets.fields(id, title, inputs, availableLoras)
             }
             api.put(id, JSONObject()
                 .put("class_type", type)
@@ -234,6 +239,7 @@ object WorkflowConverter {
 
     private fun apiFormatFields(api: JSONObject, info: JSONObject): ConvertedWorkflow {
         val fields = mutableListOf<PromptField>()
+        val availableLoras by lazy { loraOptions(info) }
         api.keys().forEach { id ->
             val node = api.optJSONObject(id) ?: return@forEach
             val type = node.optString("class_type")
@@ -254,10 +260,19 @@ object WorkflowConverter {
             arguments(def.optJSONObject("input"), def.optJSONObject("input_order")).forEach { (name, argument) ->
                 addFields(name, argument)
             }
+            if (type == PowerLoraWidgets.NODE_TYPE) {
+                fields += PowerLoraWidgets.fields(id, title, ins, availableLoras)
+            }
         }
         return ConvertedWorkflow(api, distinctLabels(fields), emptyList(),
             blockingProblems = promptProblems(api, info), outputKinds = outputKinds(api, info))
     }
+
+    private fun loraOptions(info: JSONObject): List<String> =
+        listOf("LoraLoader", "LoraLoaderModelOnly").flatMap { type ->
+            val rule = arguments(info.optJSONObject(type)?.optJSONObject("input"))["lora_name"]
+            if (rule == null) emptyList() else comboOptions(rule.type, rule.config)
+        }.distinct()
 
     private fun nodeTitle(node: JSONObject?, key: String, schema: JSONObject, classType: String): String =
         sequenceOf(node?.opt(key), schema.opt("display_name"))
@@ -351,14 +366,18 @@ object WorkflowConverter {
                 }
                 FieldKind.PARAM -> {
                     val raw = values[f.key] ?: continue
+                    val nested = if (node.optString("class_type") == PowerLoraWidgets.NODE_TYPE)
+                        PowerLoraWidgets.fieldTarget(ins, f.input) else null
+                    val target = nested?.first ?: ins
+                    val input = nested?.second ?: f.input
                     when (f.ptype) {
-                        "int" -> raw.toLongOrNull()?.let { ins.put(f.input, it) }
-                        "float" -> raw.toDoubleOrNull()?.let { ins.put(f.input, it) }
+                        "int" -> raw.toLongOrNull()?.let { target.put(input, it) }
+                        "float" -> raw.toDoubleOrNull()?.let { target.put(input, it) }
                         "bool" -> when (raw.lowercase()) {
-                            "true" -> ins.put(f.input, true)
-                            "false" -> ins.put(f.input, false)
+                            "true" -> target.put(input, true)
+                            "false" -> target.put(input, false)
                         }
-                        "combo" -> if (raw.isNotEmpty()) ins.put(f.input, raw)
+                        "combo", "string" -> if (raw.isNotEmpty()) target.put(input, raw)
                     }
                 }
             }
