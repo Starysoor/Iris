@@ -1,6 +1,9 @@
 package com.comfyremote.app.data.project
 
+import com.comfyremote.app.ConvertedWorkflow
+import com.comfyremote.app.FieldKind
 import com.comfyremote.app.data.cloud.CloudInputRule
+import com.comfyremote.app.data.cloud.CloudWorkflowMapping
 import com.comfyremote.app.data.cloud.CloudWorkflowSpec
 import com.comfyremote.app.data.reference.AssetKind
 import com.comfyremote.app.data.reference.ProjectAsset
@@ -26,6 +29,7 @@ object StudioStagePreflight {
         val min: Double?,
         val max: Double?,
         val options: List<String>,
+        val acceptedMediaTypes: List<String> = emptyList(),
     )
 
     data class Report(
@@ -44,10 +48,9 @@ object StudioStagePreflight {
         val potentialMissingMediaSlots: List<String>,
         /** The provider's own display string; pricing may be unknown. */
         val providerPrice: String?,
-    )
-
-    private val supportedTypes = setOf(
-        "image", "audio", "prompt", "string", "integer", "number", "boolean", "enum",
+        val videoInputs: Int = 0,
+        val requiredVideoInputs: Int = 0,
+        val description: String = "",
     )
 
     /**
@@ -59,12 +62,16 @@ object StudioStagePreflight {
         assets: List<ProjectAsset>,
     ): List<String> {
         val required = rules.filter {
-            it.required && it.type in setOf("image", "audio") &&
+            it.required && it.isMedia &&
                 it.effectiveDefault.isNullOrBlank()
         }
         val uniqueFiles = assets.filter { it.path.isNotBlank() }.distinctBy { it.path }
         val candidates = required.map { field ->
-            val kind = if (field.type == "image") AssetKind.IMAGE else AssetKind.AUDIO
+            val kind = when (field.type) {
+                "image" -> AssetKind.IMAGE
+                "audio" -> AssetKind.AUDIO
+                else -> AssetKind.VIDEO
+            }
             uniqueFiles.indices.filter { index ->
                 val asset = uniqueFiles[index]
                 asset.kind == kind && (kind != AssetKind.IMAGE ||
@@ -121,12 +128,11 @@ object StudioStagePreflight {
                 min = rule.min,
                 max = rule.max,
                 options = rule.options,
+                acceptedMediaTypes = rule.acceptedMediaTypes,
             )
         }
-        // The current Create field mapper deliberately does not implement video upload
-        // fields. Required unknown fields cannot be represented in Create either.
-        val unsupported = spec.rules.filter { rule ->
-            rule.required && !rule.isSeed && rule.type !in supportedTypes
+        val unsupported = listOfNotNull(spec.unavailableReason.takeIf(String::isNotBlank)) + spec.rules.filter { rule ->
+            rule.required && !CloudWorkflowMapping.supports(rule)
         }.map(CloudInputRule::name)
         val state = when {
             spec.kind != expectedKind -> Support.REQUIRES_UNSUPPORTED_INPUT
@@ -148,6 +154,47 @@ object StudioStagePreflight {
             requiredAudioInputs = inputs.count { it.type == "audio" && it.required },
             potentialMissingMediaSlots = potentialMissingSlots(spec.rules, projectAssets),
             providerPrice = spec.pricing?.label,
+            videoInputs = inputs.count { it.type == "video" },
+            requiredVideoInputs = inputs.count { it.type == "video" && it.required },
+            description = spec.description,
         )
+    }
+
+    fun inspectLocal(
+        workflowId: String,
+        name: String,
+        expectedKind: String,
+        workflow: ConvertedWorkflow,
+        projectAssets: List<ProjectAsset>,
+    ): Report {
+        val spec = CloudWorkflowSpec(
+            id = workflowId,
+            name = name,
+            kind = expectedKind.takeIf { it in workflow.outputKinds } ?: workflow.outputKinds.joinToString("/"),
+            description = "",
+            unavailableReason = workflow.blockingProblems.joinToString("\n"),
+            rules = workflow.fields.map { field ->
+                val type = field.kind.mediaType ?: when (field.kind) {
+                    FieldKind.TEXT -> if (field.multiline) "prompt" else "string"
+                    FieldKind.SEED -> "integer"
+                    else -> when (field.ptype) {
+                        "int" -> "integer"
+                        "float" -> "number"
+                        "bool" -> "boolean"
+                        else -> "enum"
+                    }
+                }
+                CloudInputRule(
+                    name = field.key, type = type, required = field.required,
+                    defaultValue = field.value, min = field.min?.toDoubleOrNull(),
+                    max = field.max?.toDoubleOrNull(), options = field.options,
+                    referenceRole = field.referenceRole, label = field.label,
+                )
+            },
+        )
+        val report = inspect(spec, expectedKind, projectAssets)
+        return if (report.support == Support.UNKNOWN_CONTRACT && expectedKind in workflow.outputKinds) {
+            report.copy(support = Support.CONFIGURABLE)
+        } else report
     }
 }

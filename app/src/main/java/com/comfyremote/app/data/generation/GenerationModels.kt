@@ -29,7 +29,12 @@ data class GenerationRequest(
     /** Set when this task belongs to a storyboard shot. */
     val storyboardProjectId: String? = null,
     val storyboardShotId: String? = null,
-)
+    /** Preparation stages stay associated with the shot and produce their own media. */
+    val studioStageKind: String? = null,
+) {
+    val isPrimaryStudioShot: Boolean
+        get() = storyboardShotId != null && (studioStageKind == null || studioStageKind == "video")
+}
 
 enum class GenerationPhase { PREPARING, QUEUEING, QUEUED, RUNNING, CANCELLING, CANCELLED, SUCCEEDED, FAILED }
 

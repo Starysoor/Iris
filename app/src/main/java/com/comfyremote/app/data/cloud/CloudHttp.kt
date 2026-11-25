@@ -1,6 +1,8 @@
 package com.comfyremote.app.data.cloud
 
 import com.comfyremote.app.ComfyException
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
@@ -89,18 +91,11 @@ object CloudHttp {
         }
     }
 
-    fun getJson(url: String, headers: Map<String, String> = emptyMap()): JSONObject {
-        val request = Request.Builder()
-            .url(url)
-            .get()
-            .apply { headers.forEach { (key, value) -> header(key, value) } }
-            .build()
-        client.newCall(request).execute().use { response ->
-            val text = response.body?.string().orEmpty()
-            if (!response.isSuccessful) throw ComfyException("HTTP ${response.code}: ${text.take(300)}")
-            return JSONObject(text)
+    /** Catalogue and model-detail reads are safe to call from the UI dispatcher. */
+    suspend fun getJson(url: String, headers: Map<String, String> = emptyMap()): JSONObject =
+        withContext(Dispatchers.IO) {
+            requestJson("GET", url, body = null, headers = headers)
         }
-    }
 
     /** Multipart POST used by OpenAI `/images/edits` and similar endpoints. */
     fun postMultipart(

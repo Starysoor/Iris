@@ -40,52 +40,71 @@ class AutoDlModelRepository(
 
     override fun endpoint(): String = account().baseUrl
 
-    override suspend fun discoverModels(): List<String> =
-        imageApi.discoverModels().filter(CloudModelParameters::looksLikeMediaModel)
+    override suspend fun discoverModels(): List<String> {
+        val account = account()
+        return discoverModelIds(settings, account) { discoverMedia(account) }
+    }
+
+    private suspend fun discoverMedia(account: CloudProviderAccount): List<CloudModelMetadata> =
+        imageApi.discoverMetadata(account).filter {
+            it.kind in setOf("image", "video", "audio") ||
+                (it.kind.isBlank() && CloudModelParameters.looksLikeMediaModel(it.id))
+        }
 
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
         val account = account()
         if (account.token.isBlank()) return emptyList()
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-            .filter(CloudModelParameters::looksLikeMediaModel)
-        return settings.enabledModels(id, models).map { model ->
-            val family = familyOf(model)
-            CloudWorkflowSummary(
-                id = model,
-                name = model,
-                description = if (family == "image") {
-                    "AutoDL model API image model"
-                } else {
-                    "AutoDL model API ${family.uppercase()} video model"
-                },
-                kind = if (family == "image") "image" else "video",
-                priceType = "official_api",
+        return modelDirectory(settings, account, force) { discoverMedia(account) }.map { model ->
+            val family = autoDlModelFamily(model.id, model.kind)
+            model.summary(
+                kind = modelKind(model, family),
+                fallbackDescription = modelDescription(model.id, family),
+                unavailableReason = unavailableReason(model.id, family),
             )
         }
     }
 
     override suspend fun detail(workflowId: String): CloudWorkflowSpec {
-        val family = familyOf(workflowId)
-        if (family == "image") return imageApi.detail(workflowId)
+        val model = settings.modelMetadata(account(), workflowId)
+        val family = autoDlModelFamily(workflowId, model.kind)
+        if (family == "image") {
+            val imageSpec = imageApi.detail(workflowId)
+            val documentedSizes = autoDlImageSizes(workflowId)
+            return imageSpec.copy(
+                description = model.description.ifBlank { modelDescription(workflowId, family) },
+                rules = if (documentedSizes.isEmpty()) imageSpec.rules else listOf(
+                    CloudInputRule("prompt", "prompt", required = true),
+                    CloudInputRule("size", "enum", required = false, defaultValue = documentedSizes.first(),
+                        options = documentedSizes),
+                ),
+                referenceUrl = when (workflowId.substringAfterLast('/').lowercase()) {
+                    "qwen-image" -> "https://autodl.art/docs/Qwen-Image/"
+                    "z-image-turbo" -> "https://autodl.art/docs/Z-Image-Turbo/"
+                    else -> imageSpec.referenceUrl
+                },
+            )
+        }
         return CloudWorkflowSpec(
             id = workflowId,
             name = workflowId,
-            kind = "video",
-            description = "AutoDL model API video generation",
-            rules = videoRules(family, workflowId),
-        )
+            kind = modelKind(model, family),
+            description = modelDescription(workflowId, family),
+            rules = if (family.isBlank()) emptyList() else videoRules(family, workflowId),
+            unavailableReason = unavailableReason(workflowId, family),
+        ).withMetadata(model)
     }
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
-        val family = familyOf(workflowId)
-        if (family == "image") return imageApi.submit(workflowId, body)
         val account = account()
+        val family = autoDlModelFamily(workflowId, settings.modelMetadata(account, workflowId).kind)
+        if (family == "image") return imageApi.submit(workflowId, body)
+        if (family.isBlank()) throw ComfyException(unavailableReason(workflowId, family))
         if (account.token.isBlank()) throw ComfyException("Configure an AutoDL model API token first")
         val headers = settings.mergeHeaders(id, mapOf("Authorization" to "Bearer ${account.token}"))
         val base = account.baseUrl.trimEnd('/')
         val (submitUrl, payload) = when (family) {
             "wan" -> "$base/ali/api/v1/services/aigc/video-generation/video-synthesis" to
-                wanPayload(workflowId, body)
+                buildAutoDlWanPayload(workflowId, body)
             "h3" -> "$base/minimax/v2/video_generation" to miniMaxPayload(workflowId, body)
             "minimax" -> "$base/minimax/v1/video_generation" to miniMaxPayload(workflowId, body)
             "seedance" -> "$base/ark/v3/contents/generations/tasks" to seedancePayload(workflowId, body)
@@ -153,20 +172,6 @@ class AutoDlModelRepository(
         CloudHttp.downloadTo(url, target)
     }
 
-    private fun wanPayload(model: String, body: JSONObject): JSONObject {
-        val input = JSONObject()
-        body.optString("prompt").takeIf { it.isNotBlank() }?.let { input.put("prompt", it) }
-        val media = JSONArray()
-        body.optString("first_frame_image").takeIf { it.isNotBlank() }?.let {
-            media.put(JSONObject().put("type", "first_frame").put("url", it))
-        }
-        if (media.length() > 0) input.put("media", media)
-        val params = JSONObject()
-        body.optString("resolution").takeIf { it.isNotBlank() }?.let { params.put("resolution", it) }
-        body.opt("duration")?.toString()?.toIntOrNull()?.let { params.put("duration", it) }
-        return JSONObject().put("model", model).put("input", input).put("parameters", params)
-    }
-
     private fun miniMaxPayload(model: String, body: JSONObject): JSONObject {
         val payload = JSONObject().put("model", model).put("prompt", body.optString("prompt"))
         body.optString("resolution").takeIf { it.isNotBlank() }?.let { payload.put("resolution", it) }
@@ -219,7 +224,7 @@ class AutoDlModelRepository(
         return "$base$path" to payload
     }
 
-    private fun wanResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun wanResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/ali/api/v1/tasks/$taskId", headers)
         val output = response.optJSONObject("output") ?: response
         val status = output.optString("task_status")
@@ -240,7 +245,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun miniMaxResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun miniMaxResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/minimax/v1/query/video_generation/$taskId", headers)
         val status = response.optString("status").ifBlank { response.optString("task_status") }
         return when (status.lowercase()) {
@@ -265,7 +270,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun seedanceResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun seedanceResult(base: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$base/ark/v3/contents/generations/tasks/$taskId", headers)
         return when (response.optString("status").lowercase()) {
             "succeeded", "success" -> {
@@ -288,7 +293,7 @@ class AutoDlModelRepository(
         }
     }
 
-    private fun klingResult(submitUrl: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
+    private suspend fun klingResult(submitUrl: String, taskId: String, headers: Map<String, String>): CloudTaskResult {
         val response = CloudHttp.getJson("$submitUrl/$taskId", headers)
         val data = response.optJSONObject("data") ?: response
         return when (data.optString("task_status").lowercase()) {
@@ -328,28 +333,45 @@ class AutoDlModelRepository(
     private fun extensionOf(url: String): String =
         url.substringBefore('?').substringAfterLast('.', "").lowercase().takeIf { it.length in 2..5 }.orEmpty()
 
-    private fun familyOf(model: String): String = when {
-        model.startsWith("wan2") || model.startsWith("wan3") -> "wan"
-        model.startsWith("MiniMax-H3") -> "h3"
-        model.startsWith("MiniMax-Hailuo") -> "minimax"
-        model.contains("seedance") -> "seedance"
-        model.startsWith("kling") -> "kling"
-        else -> "image"
+    private fun modelKind(model: CloudModelMetadata, family: String): String = when (family) {
+        "image" -> "image"
+        "" -> model.kind.ifBlank { CloudModelParameters.mediaKindHint(model.id) }
+        else -> "video"
     }
 
+    private fun modelDescription(model: String, family: String): String = when (family) {
+        "wan" -> if (wan27ImageToVideo(model)) {
+            "Wan 2.7 image-to-video via AutoDL. Choose a first frame and, optionally, an ending frame."
+        } else "Wan video generation via AutoDL. The input mode depends on the model variant."
+        "h3" -> "MiniMax H3 video generation via AutoDL. Use a prompt or a first-frame image."
+        "minimax" -> "MiniMax Hailuo video generation via AutoDL. Duration and resolution are model-specific."
+        "seedance" -> "Seedance video generation via AutoDL. Configure the frame, aspect ratio, duration and audio."
+        "kling" -> "Kling video generation via AutoDL. Supports the documented text and image submission modes."
+        "image" -> if (CloudModelParameters.supportsReferenceImage(model)) {
+            "Image generation and reference-based editing via the AutoDL Images API."
+        } else "Text-to-image generation via the AutoDL Images API."
+        else -> "Model from the AutoDL catalogue."
+    }
+
+    private fun unavailableReason(model: String, family: String): String =
+        if (family.isBlank()) "AutoDL lists $model, but its generation endpoint is not identified." else ""
+
     private fun videoRules(family: String, model: String): List<CloudInputRule> {
-        val rules = mutableListOf(CloudInputRule("prompt", "prompt", required = true))
+        val wanKeyframes = family == "wan" && wan27ImageToVideo(model)
+        val rules = mutableListOf(CloudInputRule("prompt", "prompt", required = !wanKeyframes))
         when (family) {
             "wan" -> {
                 rules += CloudInputRule(
                     "resolution", "enum", required = false, defaultValue = "720P",
-                    options = listOf("480P", "720P", "1080P"),
+                    options = if (wanKeyframes) listOf("720P", "1080P") else listOf("480P", "720P", "1080P"),
                 )
                 rules += CloudInputRule(
                     "duration", "integer", required = false, defaultValue = "5",
-                    min = 1.0, max = 30.0,
+                    min = if (wanKeyframes) 2.0 else 1.0,
+                    max = if (wanKeyframes) 15.0 else 30.0,
                 )
-                rules += CloudInputRule("first_frame_image", "image", required = false)
+                rules += CloudInputRule("first_frame_image", "image", required = wanKeyframes)
+                if (wanKeyframes) rules += CloudInputRule("last_frame_image", "image", required = false)
                 rules += CloudInputRule("negative_prompt", "string", required = false)
             }
             "h3" -> {
@@ -364,7 +386,7 @@ class AutoDlModelRepository(
                 rules += CloudInputRule("first_frame_image", "image", required = false)
             }
             "minimax" -> {
-                val durations = if (model.contains("2.3-Fast")) listOf("6") else listOf("6", "10")
+                val durations = if (model.contains("2.3-Fast", ignoreCase = true)) listOf("6") else listOf("6", "10")
                 rules += CloudInputRule(
                     "resolution", "enum", required = false, defaultValue = "768P",
                     options = if (durations == listOf("6")) listOf("768P") else listOf("768P", "1080P"),
@@ -374,7 +396,7 @@ class AutoDlModelRepository(
                 )
                 rules += CloudInputRule(
                     "first_frame_image", "image",
-                    required = model.contains("2.3-Fast"),
+                    required = model.contains("2.3-Fast", ignoreCase = true),
                 )
             }
             "seedance" -> {
@@ -416,5 +438,51 @@ class AutoDlModelRepository(
         const val PROVIDER = "autodl_model"
         const val BASE = "https://www.autodl.art/api/v1"
         const val PREFIX = "autodl-model:"
+    }
+}
+
+private fun wan27ImageToVideo(model: String): Boolean =
+    model.substringAfterLast('/').lowercase().replace('_', '-').startsWith("wan2.7-i2v")
+
+internal fun autoDlImageSizes(model: String): List<String> = when (model.substringAfterLast('/').lowercase()) {
+    "qwen-image" -> listOf("1328x1328", "1664x928")
+    "z-image-turbo" -> listOf("1024x1024")
+    else -> emptyList()
+}
+
+internal fun buildAutoDlWanPayload(model: String, body: JSONObject): JSONObject {
+    val input = JSONObject()
+    for (name in listOf("prompt", "negative_prompt")) {
+        body.optString(name).takeIf { it.isNotBlank() }?.let { input.put(name, it) }
+    }
+    val media = JSONArray()
+    body.optString("first_frame_image").takeIf { it.isNotBlank() }?.let {
+        media.put(JSONObject().put("type", "first_frame").put("url", it))
+    }
+    if (wan27ImageToVideo(model)) {
+        body.optString("last_frame_image").takeIf { it.isNotBlank() }?.let {
+            media.put(JSONObject().put("type", "last_frame").put("url", it))
+        }
+    }
+    if (media.length() > 0) input.put("media", media)
+    val params = JSONObject()
+    body.optString("resolution").takeIf { it.isNotBlank() }?.let { params.put("resolution", it) }
+    body.opt("duration")?.toString()?.toIntOrNull()?.let { params.put("duration", it) }
+    return JSONObject().put("model", model).put("input", input).put("parameters", params)
+}
+
+internal fun autoDlModelFamily(model: String, declaredKind: String = ""): String {
+    val leaf = model.substringAfterLast('/').lowercase().replace('_', '-')
+    if (declaredKind == "image") return "image"
+    if (declaredKind in setOf("text", "audio")) return ""
+    val hint = CloudModelParameters.mediaKindHint(model)
+    if (declaredKind.isBlank() && hint == "image") return "image"
+    return when {
+        leaf.startsWith("wan2") || leaf.startsWith("wan3") -> "wan"
+        leaf.startsWith("minimax-h3") -> "h3"
+        leaf.startsWith("minimax-hailuo") -> "minimax"
+        "seedance" in leaf -> "seedance"
+        leaf.startsWith("kling") -> "kling"
+        else -> ""
     }
 }

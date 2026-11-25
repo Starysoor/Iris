@@ -26,6 +26,8 @@ jobs:
 
       - name: Read and verify release version
         shell: bash
+        env:
+          RELEASE_COMMIT_MESSAGE: ${{ github.event.head_commit.message }}
         run: |
           APP_VERSION=$(sed -n 's/.*versionName = "\([^"]*\)".*/\1/p' app/build.gradle.kts | head -n1)
           APP_VERSION_CODE=$(sed -n 's/.*versionCode = \([0-9][0-9]*\).*/\1/p' app/build.gradle.kts | head -n1)
@@ -39,7 +41,7 @@ jobs:
           if [[ "$GITHUB_REF" == refs/tags/v* ]]; then
             REQUESTED_TAG="$GITHUB_REF_NAME"
           else
-            REQUESTED_TAG=$(printf '%s\n' "${{ github.event.head_commit.message }}" | head -n1 | sed -n 's/^release: \(v[^ ]*\).*/\1/p')
+            REQUESTED_TAG=$(printf '%s\n' "$RELEASE_COMMIT_MESSAGE" | sed -n '1s/^release: \(v[^ ]*\).*/\1/p')
           fi
 
           echo "requested=$REQUESTED_TAG app=$RELEASE_TAG code=$APP_VERSION_CODE"

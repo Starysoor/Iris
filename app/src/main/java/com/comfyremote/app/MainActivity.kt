@@ -13,6 +13,7 @@ import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import com.comfyremote.app.data.generation.GenerationNotificationController
 import com.comfyremote.app.data.generation.GenerationRequest
+import com.comfyremote.app.data.project.ProjectExportService
 import com.comfyremote.app.navigation.ComfyRemoteRoot
 import com.comfyremote.app.navigation.Routes
 import com.comfyremote.app.ui.IrisTheme
@@ -103,6 +104,9 @@ class MainActivity : ComponentActivity() {
         }
         intent.getStringExtra(GenerationNotificationController.EXTRA_TASK_ID)?.let { taskId ->
             container.navigationRequests.request(Routes.task(taskId))
+        }
+        intent.getStringExtra(ProjectExportService.EXTRA_PROJECT_ID)?.let { projectId ->
+            container.navigationRequests.request(Routes.projectTimeline(projectId))
         }
         if (container.incomingMedia.handleIntent(intent)) {
             // Cloud workflows can consume shared media without a local ComfyUI session.

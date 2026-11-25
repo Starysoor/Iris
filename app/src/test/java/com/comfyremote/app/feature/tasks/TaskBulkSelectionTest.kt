@@ -55,4 +55,15 @@ class TaskBulkSelectionTest {
         assertEquals(setOf("p1-failed", "p1-success", "p1-queued", "p1-running"), ui.visible.map { it.taskId }.toSet())
         assertEquals(ui.queuedTargets, TaskBulkSelection.queued(ui.tasks, ui.serverUrl, ui.projectFilter))
     }
+
+    @Test fun selectingAShotScopesEveryBulkAction() {
+        val withShots = tasks.mapIndexed { index, task ->
+            task.copy(request = task.request.copy(storyboardShotId = if (index < 3) "first" else "other"))
+        }
+        val ui = TasksUiState(tasks = withShots, projectFilter = "p1", shotFilter = "first")
+        assertEquals(setOf("p1-failed", "p1-success", "p1-queued"), ui.visible.map { it.taskId }.toSet())
+        assertEquals(listOf("p1-failed"), ui.failedTargets.map { it.taskId })
+        assertEquals(listOf("p1-queued"), ui.queuedTargets.map { it.taskId })
+        assertEquals(listOf("p1-failed", "p1-success"), ui.finishedTargets.map { it.taskId })
+    }
 }

@@ -10,27 +10,32 @@ import com.comfyremote.app.AppContainer
 import com.comfyremote.app.AiImagePayload
 import com.comfyremote.app.HistoryItem
 import com.comfyremote.app.LabeledText
+import com.comfyremote.app.WorkflowEntry
 import com.comfyremote.app.data.cloud.AutoDlConfig
 import com.comfyremote.app.data.media.FrameStrip
+import com.comfyremote.app.data.media.MediaKind
+import com.comfyremote.app.data.media.MediaTypeResolver
 import com.comfyremote.app.data.media.ContinuityPaging
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
 import com.comfyremote.app.data.project.AssetProfile
 import com.comfyremote.app.data.project.ProjectArchive
-import com.comfyremote.app.data.project.ExportPlanBuilder
+import com.comfyremote.app.data.project.ProjectExportController
 import com.comfyremote.app.data.project.ProfileKind
 import com.comfyremote.app.data.project.ProjectShot
 import com.comfyremote.app.data.project.StudioStagePreflight
 import com.comfyremote.app.data.project.StudioStageMediaBindings
+import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.project.TimelineClip
 import com.comfyremote.app.data.project.TrackKind
-import com.comfyremote.app.data.project.VideoExporter
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.data.project.isOrphanedRunningShot
 import com.comfyremote.app.feature.project.DirectorPrompts
 import com.comfyremote.app.data.reference.ProjectAsset
+import com.comfyremote.app.data.reference.AssetKind
 import com.comfyremote.app.data.reference.ReferenceRole
 import com.comfyremote.app.data.repository.DraftTransfer
+import com.comfyremote.app.data.repository.LocalWorkflowReference
 import com.comfyremote.app.feature.generate.isVideoPath
 import com.comfyremote.app.R
 import com.comfyremote.app.ui.AppStrings
@@ -54,6 +59,7 @@ data class ProjectWorkflowOption(
     val providerId: String,
     val providerLabel: String,
     val kind: String,
+    val description: String = "",
 )
 
 /** Studio-side ViewModel: projects, shots, assets and generation-task sync. */
@@ -155,6 +161,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val projectId: String = "",
         val workflowPath: String = "",
         val kind: String = "",
+        val shotId: String? = null,
         val loading: Boolean = false,
         val report: StudioStagePreflight.Report? = null,
         val error: String? = null,
@@ -166,21 +173,30 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     private var stageInspectionJob: Job? = null
 
     /** Inspect only real provider detail metadata. Never submits or uploads media. */
-    fun inspectStage(projectId: String, kind: String, workflowPath: String) {
+    fun inspectStage(projectId: String, kind: String, workflowPath: String, shotId: String? = null) {
         val project = container.projectStore.project(projectId) ?: return
+        val shot = shotId?.let { id -> project.shots.firstOrNull { it.id == id } ?: return }
+        if (StudioWorkflowRecipes.workflowPath(project, kind, shot) != workflowPath) return
         val option = _stageWorkflows.value.firstOrNull {
             it.kind == kind && it.path == workflowPath
         } ?: return
         val current = stageInspectionVersion.incrementAndGet()
         stageInspectionJob?.cancel()
         val provider = container.cloudProviders.forPath(option.path)
-        if (provider == null || !provider.configured() ||
-            !container.cloudProviders.isEnabled(provider.id)) {
+        val local = LocalWorkflowReference.parse(option.path)
+        val available = if (local != null) {
+            local.serverUrl == container.serverSession.url
+        } else {
+            provider != null && provider.configured() && container.cloudProviders.isEnabled(provider.id)
+        }
+        if (!available) {
             _stageInspection.value = StageInspection(
                 projectId = projectId,
                 workflowPath = workflowPath,
                 kind = kind,
-                error = "Provider is not configured or is disabled",
+                shotId = shotId,
+                error = if (local != null) AppStrings.get(R.string.gen_vm_server_disconnected)
+                    else AppStrings.get(R.string.studio_contract_provider_unavailable, option.providerLabel),
             )
             return
         }
@@ -188,16 +204,18 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             projectId = projectId,
             workflowPath = workflowPath,
             kind = kind,
+            shotId = shotId,
             loading = true,
         )
         stageInspectionJob = viewModelScope.launch {
             val outcome = try {
                 Result.success(withContext(Dispatchers.IO) {
-                    StudioStagePreflight.inspect(
-                        provider.detail(option.workflowId),
-                        expectedKind = kind,
-                        projectAssets = project.assets,
-                    )
+                    if (local != null) {
+                        val converted = container.workflowRepository.convert(WorkflowEntry(option.path, option.name, ""))
+                        StudioStagePreflight.inspectLocal(option.workflowId, option.name, kind, converted, project.assets)
+                    } else {
+                        StudioStagePreflight.inspect(requireNotNull(provider).detail(option.workflowId), kind, project.assets)
+                    }
                 })
             } catch (cancelled: CancellationException) {
                 throw cancelled
@@ -209,6 +227,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 projectId = projectId,
                 workflowPath = workflowPath,
                 kind = kind,
+                shotId = shotId,
                 report = outcome.getOrNull(),
                 error = outcome.exceptionOrNull()?.message ?: outcome.exceptionOrNull()?.javaClass?.simpleName,
             )
@@ -256,6 +275,15 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 refreshWorkflows()
             }
         }
+        viewModelScope.launch {
+            var previous = container.serverSession.session.value
+            container.serverSession.session.collect { session ->
+                if (previous != session) {
+                    previous = session
+                    refreshWorkflows()
+                }
+            }
+        }
     }
 
     fun refreshWorkflows() {
@@ -274,7 +302,9 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     runCatching { provider.catalog(force = false) }
                         .onSuccess { list ->
                             ready += provider.id
-                            options += list.filter { it.kind in setOf("image", "video", "audio") }.map { summary ->
+                            options += list.filter {
+                                it.kind in setOf("image", "video", "audio") && it.unavailableReason.isBlank()
+                            }.map { summary ->
                                 ProjectWorkflowOption(
                                     path = provider.pathPrefix + summary.id,
                                     workflowId = summary.id,
@@ -282,6 +312,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                                     providerId = provider.id,
                                     providerLabel = provider.label,
                                     kind = summary.kind,
+                                    description = summary.description,
                                 )
                             }
                         }
@@ -292,12 +323,30 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                             }"
                         }
                 }
+                if (container.serverSession.connected) {
+                    try {
+                        val local = container.workflowRepository.studioWorkflows()
+                        ready += "comfyui"
+                        for ((entry, workflow) in local) {
+                            if (workflow.blockingProblems.isNotEmpty()) continue
+                            val ref = LocalWorkflowReference.parse(entry.path) ?: continue
+                            options += workflow.outputKinds.map { kind ->
+                                ProjectWorkflowOption(entry.path, ref.workflowPath, entry.name,
+                                    "comfyui", "ComfyUI", kind)
+                            }
+                        }
+                    } catch (cancelled: CancellationException) {
+                        throw cancelled
+                    } catch (error: Exception) {
+                        errors += "ComfyUI: ${error.message ?: error.javaClass.simpleName}"
+                    }
+                }
                 Triple(options, errors, ready)
             }
             if (!isActive || version != catalogRefreshVersion.get()) return@launch
             catalogReadyProviders.clear()
             catalogReadyProviders += ready
-            val sorted = options.distinctBy { it.path }.sortedWith(
+            val sorted = options.distinctBy { it.path to it.kind }.sortedWith(
                 compareBy<ProjectWorkflowOption> { it.providerLabel.lowercase() }
                     .thenBy { it.name.lowercase() }
             )
@@ -324,21 +373,22 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** Only bind an existing project asset to an actual, just-inspected image/audio slot. */
+    /** Only bind an existing project asset to a field from the selected, inspected model. */
     fun setStageMediaBinding(
         projectId: String,
         kind: String,
         workflowPath: String,
         fieldName: String,
         assetId: String?,
+        shotId: String? = null,
     ) {
         val project = container.projectStore.project(projectId) ?: return
-        val chosenPath = project.stageWorkflowPaths[kind]
-            ?.takeIf(String::isNotBlank) ?: if (kind == "video") project.workflowPath else ""
+        val shot = shotId?.let { id -> project.shots.firstOrNull { it.id == id } ?: return }
+        val chosenPath = StudioWorkflowRecipes.workflowPath(project, kind, shot)
         if (chosenPath != workflowPath) return
         if (assetId != null) {
             val verified = _stageInspection.value.takeIf {
-                it.projectId == projectId && it.workflowPath == workflowPath && it.kind == kind &&
+                it.projectId == projectId && it.workflowPath == workflowPath && it.kind == kind && it.shotId == shotId &&
                     it.report?.support == StudioStagePreflight.Support.CONFIGURABLE
             }?.report
             val input = verified?.inputs?.firstOrNull { it.field == fieldName }
@@ -348,7 +398,7 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 return
             }
         }
-        if (!container.projectStore.setStageMediaBinding(projectId, workflowPath, fieldName, assetId)) {
+        if (!container.projectStore.setStageMediaBinding(projectId, workflowPath, fieldName, assetId, shotId)) {
             _message.value = AppStrings.get(R.string.board_err_persist)
         }
     }
@@ -356,40 +406,15 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     /** Open an independently submitted image/video/audio stage with a persistent project id. */
     fun openStage(projectId: String, kind: String): Pair<String, String>? {
         val project = container.projectStore.project(projectId) ?: return null
-        if (!com.comfyremote.app.data.project.StudioWorkflowRecipes.isModelKind(kind)) return null
-        val path = project.stageWorkflowPaths[kind]?.takeIf(String::isNotBlank)
-            ?: if (kind == "video") project.workflowPath else ""
+        if (!StudioWorkflowRecipes.isModelKind(kind)) return null
+        val path = StudioWorkflowRecipes.workflowPath(project, kind)
         val option = _stageWorkflows.value.firstOrNull { it.kind == kind && it.path == path }
-        if (option == null) {
+        if (option == null || path == null) {
             _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return null
         }
-        val provider = container.cloudProviders.forPath(path)
-        if (provider == null || !provider.configured()) {
-            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
-            return null
-        }
-        val bindings = project.stageMediaBindings.filter { it.workflowPath == path }
-        val fieldPaths = if (bindings.isNotEmpty()) {
-            val report = _stageInspection.value.takeIf {
-                it.projectId == projectId && it.kind == kind && it.workflowPath == path &&
-                    it.report?.support == StudioStagePreflight.Support.CONFIGURABLE
-            }?.report
-            if (report == null) {
-                _message.value = AppStrings.get(R.string.studio_binding_reinspect)
-                return null
-            }
-            StudioStageMediaBindings.resolve(
-                path,
-                report,
-                bindings,
-                project.assets,
-                readable = { media -> File(media).let { it.isFile && it.canRead() } },
-            ) ?: run {
-                _message.value = AppStrings.get(R.string.studio_binding_stale)
-                return null
-            }
-        } else emptyMap()
+        if (!workflowAvailable(path)) return null
+        val fieldPaths = stageBindingPaths(project, kind, path, shotId = null) ?: return null
         val name = "${project.title} · ${option.name}"
         container.draftTransferRepository.put(DraftTransfer(
             workflowPath = path,
@@ -401,9 +426,34 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             randomSeed = true,
             storyboardProjectId = projectId,
             storyboardShotId = null,
+            studioStageKind = kind,
             referenceFieldPaths = fieldPaths,
         ))
         return path to name
+    }
+
+    private fun stageBindingPaths(
+        project: VideoProject,
+        kind: String,
+        path: String,
+        shotId: String?,
+    ): Map<String, String>? {
+        val bindings = StudioStageMediaBindings.effective(project.stageMediaBindings, path, shotId)
+        val report = _stageInspection.value.takeIf {
+            it.projectId == project.id && it.kind == kind && it.workflowPath == path && it.shotId == shotId
+        }?.report
+        if (report != null && report.support != StudioStagePreflight.Support.CONFIGURABLE) {
+            _message.value = AppStrings.get(R.string.studio_binding_reinspect)
+            return null
+        }
+        val readable: (String) -> Boolean = { media -> File(media).let { it.isFile && it.canRead() } }
+        val paths = if (report != null) {
+            StudioStageMediaBindings.resolve(path, report, bindings, project.assets, readable)
+        } else {
+            StudioStageMediaBindings.localPaths(bindings, project.assets, readable)
+        }
+        if (paths == null) _message.value = AppStrings.get(R.string.studio_binding_stale)
+        return paths
     }
 
     fun createProject(
@@ -433,7 +483,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
 
     fun deleteProject(id: String): Boolean {
         val project = container.projectStore.project(id) ?: return false
-        if (project.shots.any(::shotRunning)) {
+        if (project.shots.any(::shotRunning) ||
+            tasks.value.any { it.isActive && it.request.storyboardProjectId == id }) {
             _message.value = AppStrings.get(R.string.board_err_delete_running_project)
             return false
         }
@@ -475,7 +526,9 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     fun deleteShot(projectId: String, shotId: String) {
         val shot = container.projectStore.project(projectId)
             ?.shots?.firstOrNull { it.id == shotId } ?: return
-        if (shotRunning(shot)) {
+        if (shotRunning(shot) || tasks.value.any {
+                it.isActive && it.request.storyboardProjectId == projectId && it.request.storyboardShotId == shotId
+            }) {
             _message.value = AppStrings.get(R.string.board_err_delete_running_shot)
             return
         }
@@ -599,30 +652,131 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
 
     /**
      * Sets a provider workflow for one shot. A null path restores the project default.
-     * Cached parameter values belong to the previous workflow, so they are dropped.
      */
     fun setShotWorkflow(projectId: String, shotId: String, workflowPath: String?) {
-        val shot = shot(projectId, shotId) ?: return
+        val project = project(projectId) ?: return
+        val shot = project.shots.firstOrNull { it.id == shotId } ?: return
         if (shot.workflowPath == workflowPath?.takeIf { it.isNotBlank() }) return
-        if (workflowPath.isNullOrBlank()) {
-            container.projectStore.updateShot(projectId, shotId) {
-                it.copy(workflowId = null, workflowPath = null, providerId = null, values = emptyMap())
-            }
-            return
+        val option = workflowPath?.takeIf(String::isNotBlank)?.let { path ->
+            _workflows.value.firstOrNull { it.path == path }
         }
-        val option = _workflows.value.firstOrNull { it.path == workflowPath }
-        if (option == null) {
+        if (!workflowPath.isNullOrBlank() && option == null) {
             _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return
         }
-        container.projectStore.updateShot(projectId, shotId) {
-            it.copy(
-                workflowId = option.workflowId,
-                workflowPath = option.path,
-                providerId = option.providerId,
-                values = emptyMap(),
+        if (!container.projectStore.setShotVideoWorkflow(
+                projectId, shotId, option?.path, option?.providerId, option?.workflowId,
             )
+        ) {
+            _message.value = AppStrings.get(R.string.board_err_persist)
         }
+    }
+
+    fun setShotStageWorkflow(projectId: String, shotId: String, kind: String, workflowPath: String?) {
+        if (kind == "video") {
+            setShotWorkflow(projectId, shotId, workflowPath)
+            return
+        }
+        if (kind != "image" && kind != "audio") return
+        if (workflowPath != null && _stageWorkflows.value.none { it.path == workflowPath && it.kind == kind }) {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
+            return
+        }
+        container.projectStore.updateShot(projectId, shotId) { shot ->
+            val paths = if (workflowPath == null) shot.stageWorkflowPaths - kind
+                else shot.stageWorkflowPaths + (kind to workflowPath)
+            shot.copy(stageWorkflowPaths = paths)
+        }
+    }
+
+    fun openShotStage(projectId: String, shotId: String, kind: String): Pair<String, String>? {
+        if (kind == "video") return openShot(projectId, shotId)
+        if (kind != "image" && kind != "audio") return null
+        val project = project(projectId) ?: return null
+        val shot = project.shots.firstOrNull { it.id == shotId } ?: return null
+        if (shotRunning(shot) || tasks.value.any { it.isActive && it.request.storyboardProjectId == projectId &&
+                    it.request.storyboardShotId == shotId && it.request.studioStageKind == kind }) return null
+        val path = StudioWorkflowRecipes.workflowPath(project, kind, shot)
+        val option = _stageWorkflows.value.firstOrNull { it.path == path && it.kind == kind }
+        if (path == null || option == null) {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
+            return null
+        }
+        if (!workflowAvailable(path)) return null
+        val bound = stageBindingPaths(project, kind, path, shotId) ?: return null
+        val name = "${project.title} · ${option.name}"
+        container.draftTransferRepository.put(StudioWorkflowRecipes.shotTransfer(project, shot, kind, path, name, bound))
+        return path to name
+    }
+
+    fun useShotStageResult(projectId: String, shotId: String, taskId: String, firstFrame: Boolean = true) {
+        val task = tasks.value.firstOrNull {
+            it.taskId == taskId && it.phase == GenerationPhase.SUCCEEDED &&
+                it.request.storyboardProjectId == projectId && it.request.storyboardShotId == shotId
+        } ?: return
+        val kind = when (task.request.studioStageKind) {
+            "image" -> MediaKind.IMAGE
+            "audio" -> MediaKind.AUDIO
+            else -> return
+        }
+        val path = task.results.firstOrNull {
+            MediaTypeResolver.kind(it.localPath) == kind && File(it.localPath).isFile
+        }?.localPath
+        if (path == null) {
+            _message.value = AppStrings.get(R.string.board_err_no_result)
+            return
+        }
+        if (kind == MediaKind.AUDIO) {
+            addTimelineClip(projectId, TrackKind.AUDIO, path, task.request.workflowName)
+            return
+        }
+        val role = if (firstFrame) ReferenceRole.START_FRAME else ReferenceRole.END_FRAME
+        val asset = ProjectAsset(role = role, path = path, label = task.request.workflowName)
+        if (!container.projectStore.attachExistingFrame(projectId, shotId, asset, firstFrame)) {
+            _message.value = AppStrings.get(R.string.board_err_persist)
+        }
+    }
+
+    fun keepStageResult(projectId: String, shotId: String, taskId: String) {
+        val task = tasks.value.firstOrNull {
+            it.taskId == taskId && it.phase == GenerationPhase.SUCCEEDED &&
+                it.request.storyboardProjectId == projectId && it.request.storyboardShotId == shotId
+        } ?: return
+        val kind = when (task.request.studioStageKind) {
+            "image" -> MediaKind.IMAGE
+            "audio" -> MediaKind.AUDIO
+            "video", null -> MediaKind.VIDEO
+            else -> return
+        }
+        val path = task.results.firstOrNull {
+            MediaTypeResolver.kind(it.localPath) == kind && File(it.localPath).isFile
+        }?.localPath ?: run {
+            _message.value = AppStrings.get(R.string.board_err_no_result)
+            return
+        }
+        val project = project(projectId) ?: return
+        val role = ReferenceRole.GENERIC_REFERENCE
+        val assetKind = when (kind) {
+            MediaKind.IMAGE -> AssetKind.IMAGE
+            MediaKind.AUDIO -> AssetKind.AUDIO
+            MediaKind.VIDEO -> AssetKind.VIDEO
+        }
+        if (project.assets.none { it.path == path && it.role == role }) {
+            if (!container.projectStore.addAsset(projectId, ProjectAsset(
+                    role = role, path = path, label = task.request.workflowName,
+                    kind = assetKind,
+                ))) {
+                _message.value = AppStrings.get(R.string.board_err_persist)
+                return
+            }
+        }
+        _message.value = AppStrings.get(R.string.history_msg_added_to_project)
+    }
+
+    fun addShotToTimeline(projectId: String, shotId: String) {
+        val shot = shot(projectId, shotId) ?: return
+        val path = shot.resultPath?.takeIf(MediaTypeResolver::isVideo) ?: return
+        addTimelineClip(projectId, TrackKind.VIDEO, path, shot.prompt.take(50))
     }
 
     /** Copies a picked image into project-owned storage so it survives gallery changes. */
@@ -718,52 +872,36 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         if (index < 0) return null
         val shot = project.shots[index]
         if (shotRunning(shot)) return null
-        val previous = project.shots.getOrNull(index - 1)
-        val assetReferences = shot.referenceAssetIds.mapNotNull { id ->
-            project.assets.firstOrNull { it.id == id }?.path
-        }
-        val reference = if (shot.referenceManual) shot.referencePath
-        else shot.referencePath ?: if (project.chainFrames) previous?.lastFramePath else null
-        val prompt = listOf(project.stylePrompt, shot.prompt, shot.cameraNotes)
-            .filterNotNull()
-            .filter(String::isNotBlank)
-            .joinToString(", ")
         val name = "${project.title} · ${index + 1}"
-        val workflowPath = shot.workflowPath?.takeIf { it.isNotBlank() }
-            ?: project.workflowPath.takeIf { it.isNotBlank() }
-            ?: AutoDlConfig.PATH_PREFIX + (shot.workflowId ?: project.workflowId)
-        val provider = container.cloudProviders.forPath(workflowPath)
-        if (provider == null) {
-            _message.value = AppStrings.get(R.string.board_err_unknown_provider, workflowPath)
+        val workflowPath = StudioWorkflowRecipes.workflowPath(project, "video", shot) ?: run {
+            _message.value = AppStrings.get(R.string.board_err_choose_workflow)
             return null
         }
-        if (!provider.configured()) {
-            _message.value = AppStrings.get(R.string.board_err_provider_not_configured, provider.label)
-            return null
-        }
-        if (provider.id in catalogReadyProviders && _workflows.value.none { it.path == workflowPath }) {
+        if (!workflowAvailable(workflowPath)) return null
+        val providerId = container.cloudProviders.forPath(workflowPath)?.id ?: "comfyui"
+        if (providerId in catalogReadyProviders && _workflows.value.none { it.path == workflowPath }) {
             _message.value = AppStrings.get(R.string.board_err_workflow_missing, workflowPath)
             return null
         }
-        val values = project.defaultValues + shot.values +
-            (if (prompt.isBlank()) emptyMap() else mapOf("prompt" to prompt))
-        container.projectStore.updateShot(projectId, shotId) {
-            it.copy(status = if (it.status == "running") it.status else "draft", error = null)
-        }
+        val bound = stageBindingPaths(project, "video", workflowPath, shotId) ?: return null
         container.draftTransferRepository.put(
-            DraftTransfer(
-                workflowPath = workflowPath,
-                workflowName = name,
-                values = values,
-                randomSeed = true,
-                serverUrl = null,
-                referenceLocalPath = if (assetReferences.isEmpty()) reference else null,
-                referenceLocalPaths = assetReferences,
-                storyboardProjectId = project.id,
-                storyboardShotId = shot.id,
-            )
+            StudioWorkflowRecipes.shotTransfer(project, shot, "video", workflowPath, name, bound)
         )
         return workflowPath to name
+    }
+
+    private fun workflowAvailable(path: String): Boolean {
+        val local = LocalWorkflowReference.parse(path)
+        if (local != null) {
+            if (local.serverUrl == container.serverSession.url) return true
+            _message.value = AppStrings.get(R.string.studio_local_server_required, local.serverUrl)
+            return false
+        }
+        val provider = container.cloudProviders.forPath(path)
+        if (provider != null && provider.configured() && container.cloudProviders.isEnabled(provider.id)) return true
+        _message.value = if (provider == null) AppStrings.get(R.string.board_err_unknown_provider, path)
+        else AppStrings.get(R.string.board_err_provider_not_configured, provider.label)
+        return false
     }
 
     fun nextShot(projectId: String): ProjectShot? = container.projectStore.nextShot(projectId)
@@ -849,140 +987,23 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         }
     }.getOrNull()
 
-    // ---- MP4 export ----
-
-    sealed interface ExportState {
-        data object Idle : ExportState
-        data class Running(val progress: Float) : ExportState
-        data class Succeeded(val outputPath: String) : ExportState
-        data class Failed(val message: String) : ExportState
-    }
-
-    private val exporter by lazy { VideoExporter(container.app) }
-    private var exportJob: Job? = null
-    private val _exportState = MutableStateFlow<ExportState>(ExportState.Idle)
-    val exportState: StateFlow<ExportState> = _exportState.asStateFlow()
+    // ---- MP4 export (service-owned; safe to navigate away) ----
+    val exportState: StateFlow<ProjectExportController.State> =
+        container.projectExportController.state
 
     /**
-     * Exports the video track and its parallel audio overlay to MP4, then
-     * registers the verified result in History.
-     * Export runs in the ViewModel scope: leaving the app kills it (the tmp
-     * file never becomes a finished result); the user retries manually.
+     * User-requested export starts a foreground dataSync service.
+     * The ViewModel never owns the Transformer coroutine.
      */
-    fun startExport(projectId: String) {
-        if (_exportState.value is ExportState.Running || exportJob?.isActive == true) return
-        val project = container.projectStore.project(projectId) ?: return
-        val timeline = project.timeline
-        if (timeline == null || timeline.videoTrack.isEmpty()) {
-            _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
-            return
-        }
-        exportJob = viewModelScope.launch {
-            val available = withContext(Dispatchers.IO) {
-                (timeline.videoTrack + timeline.audioTrack)
-                    .map { it.sourcePath }.filter { File(it).isFile }.toSet()
-            }
-            val missing = (timeline.videoTrack + timeline.audioTrack)
-                .filter { it.sourcePath !in available }
-            if (missing.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_skipped,
-                    missing.joinToString(", ") { it.sourceLabel.ifBlank { it.sourcePath.substringAfterLast('/') } },
-                ))
-                return@launch
-            }
-            // Validate actual media metadata before invoking the encoder. An existing file
-            // may be corrupt or have a clip out-point past its playable duration.
-            val durationByPath = withContext(Dispatchers.IO) {
-                available.associateWith { mediaDurationMs(it) }
-            }
-            val unreadable = durationByPath.filterValues { it == null || it <= 0L }.keys
-            if (unreadable.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_unreadable,
-                    unreadable.joinToString(", ") { it.substringAfterLast('/') },
-                ))
-                return@launch
-            }
-            val plan = ExportPlanBuilder.build(
-                timeline, available, durationByPath.mapValues { it.value!! },
-            )
-            if (plan.invalidTrims.isNotEmpty()) {
-                _exportState.value = ExportState.Failed(AppStrings.get(
-                    R.string.proj_export_invalid_trim, plan.invalidTrims.joinToString(", "),
-                ))
-                return@launch
-            }
-            if (plan.isEmpty) {
-                _exportState.value = ExportState.Failed(AppStrings.get(R.string.proj_export_no_clips))
-                return@launch
-            }
-            _exportState.value = ExportState.Running(0f)
-            val stamp = System.currentTimeMillis()
-            val target = container.historyRepository.newMediaFile("project-export-$stamp", 0, "mp4")
-            val tmp = File(target.parentFile, target.name + ".tmp")
-            runCatching {
-                exporter.export(plan, tmp) { progress ->
-                    _exportState.value = ExportState.Running(progress)
-                }
-            }.onSuccess { result ->
-                when (result) {
-                    is VideoExporter.Result.Cancelled -> {
-                        tmp.delete()
-                        _exportState.value = ExportState.Idle
-                    }
-                    is VideoExporter.Result.Success -> {
-                        // Same-directory rename is atomic; never copy directly into a
-                        // final .mp4 name, because an interrupted copy leaves a partial movie.
-                        if (!tmp.renameTo(target)) {
-                            tmp.delete()
-                            _exportState.value = ExportState.Failed(
-                                AppStrings.get(R.string.proj_export_commit_failed),
-                            )
-                            return@onSuccess
-                        }
-                        val saved = runCatching { container.historyRepository.add(
-                            HistoryItem(
-                                id = "project-export-${project.id}-$stamp",
-                                wfPath = project.workflowPath,
-                                wfName = AppStrings.get(R.string.proj_export_history_name, project.title),
-                                time = System.currentTimeMillis(),
-                                values = emptyMap(),
-                                fields = emptyList(),
-                                randomSeed = false,
-                                images = listOf(target.absolutePath),
-                                summary = project.title.take(50),
-                                prompts = emptyList(),
-                                seeds = "",
-                                serverUrl = "",
-                                tags = listOf("project-export"),
-                            ))
-                        }
-                        saved.onSuccess {
-                            _exportState.value = ExportState.Succeeded(target.absolutePath)
-                        }.onFailure { error ->
-                            target.delete()
-                            _exportState.value = ExportState.Failed(error.message ?: error.javaClass.simpleName)
-                        }
-                    }
-                }
-            }.onFailure { error ->
-                tmp.delete()
-                _exportState.value = if (error is CancellationException) ExportState.Idle
-                    else ExportState.Failed(error.message ?: error.javaClass.simpleName)
-            }
-        }
-    }
+    fun startExport(projectId: String): Boolean =
+        container.projectExportController.requestStart(projectId)
 
     fun cancelExport() {
-        exporter.cancel()
-        // Media3 cancellation may not invoke the completion listener; cancelling
-        // the coroutine resumes the cancellable continuation and unblocks the UI.
-        exportJob?.cancel()
+        container.projectExportController.cancel()
     }
 
-    fun dismissExport() {
-        if (_exportState.value !is ExportState.Running) _exportState.value = ExportState.Idle
+    fun dismissExport(projectId: String) {
+        container.projectExportController.dismiss(projectId)
     }
 
     fun saveExportToGallery(path: String) {
@@ -1167,6 +1188,8 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
         val selected: Set<Int> = emptySet(),
         val projectId: String? = null,
         val projectUpdatedAt: Long = 0L,
+        val previousSuggestions: List<DirectorPrompts.SuggestedShot> = emptyList(),
+        val previousSelection: Set<Int> = emptySet(),
     )
 
     private val _planState = MutableStateFlow(PlanState())
@@ -1213,8 +1236,12 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     /** Ask the configured AI for grounded v1 JSON; legacy line outputs remain parseable. */
-    fun suggestShotPlan(projectId: String) {
+    fun suggestShotPlan(projectId: String, revision: String? = null) {
         val project = container.projectStore.project(projectId) ?: return
+        val current = _planState.value
+        val sameProject = current.projectId == projectId && current.projectUpdatedAt == project.updatedAt
+        val previous = current.takeIf { sameProject } ?: PlanState()
+        if (revision != null && (revision.isBlank() || previous.suggestions.isEmpty())) return
         val settings = container.aiSettingsStore.load()
         if (!settings.configured) {
             _message.value = AppStrings.get(R.string.gen_vm_ai_not_configured)
@@ -1228,20 +1255,19 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             projectUpdatedAt = project.updatedAt,
         )
         planJob = viewModelScope.launch {
-            val suggestions = withContext(Dispatchers.IO) {
+            val outcome = withContext(Dispatchers.IO) {
                 try {
                     val text = container.aiRepository.chat(
                         DirectorPrompts.system(),
                         DirectorPrompts.user(project, _workflows.value.map {
                             "${it.path} · ${it.providerLabel} · ${it.name}"
-                        }),
+                        }, revision, previous.suggestions),
                     )
-                    DirectorPrompts.parsePlan(text)
+                    Result.success(DirectorPrompts.parsePlan(text))
                 } catch (cancel: CancellationException) {
                     throw cancel
                 } catch (error: Exception) {
-                    _message.value = error.message ?: error.javaClass.simpleName
-                    emptyList()
+                    Result.failure(error)
                 }
             }
             if (!isActive || generation != planGeneration.get()) return@launch
@@ -1249,6 +1275,13 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
             if (availableProject == null || availableProject.updatedAt != project.updatedAt) {
                 _message.value = AppStrings.get(R.string.studio_ai_stale_plan)
                 _planState.value = PlanState()
+                return@launch
+            }
+            val suggestions = outcome.getOrNull().orEmpty()
+            if (suggestions.isEmpty()) {
+                _message.value = outcome.exceptionOrNull()?.message
+                    ?: AppStrings.get(R.string.studio_plan_no_valid_response)
+                _planState.value = previous
                 return@launch
             }
             _planState.value = PlanState(
@@ -1260,8 +1293,21 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                 selected = suggestions.indices.filter { index ->
                     DirectorPrompts.validationIssues(suggestions[index], project).isEmpty()
                 }.toSet(),
+                previousSuggestions = if (revision == null) emptyList() else previous.suggestions,
+                previousSelection = if (revision == null) emptySet() else previous.selected,
             )
         }
+    }
+
+    fun restorePreviousPlan() {
+        val current = _planState.value
+        if (current.loading || current.previousSuggestions.isEmpty()) return
+        _planState.value = current.copy(
+            suggestions = current.previousSuggestions,
+            selected = current.previousSelection,
+            previousSuggestions = emptyList(),
+            previousSelection = emptySet(),
+        )
     }
 
     /** Applies only selected, validated local draft shots; never generates or pays. */
@@ -1368,7 +1414,10 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                     return@forEach
                 }
                 if (task.phase == GenerationPhase.SUCCEEDED) {
-                    if (shot.status == "done" && shot.resultPath == task.results.firstOrNull()?.localPath) {
+                    val resultPath = if (task.request.studioStageKind == "video") {
+                        task.results.firstOrNull { MediaTypeResolver.isVideo(it.localPath) }?.localPath
+                    } else task.results.firstOrNull()?.localPath
+                    if (shot.status == "done" && shot.resultPath == resultPath) {
                         val frame = shot.lastFramePath
                         if (!shot.tailFrameStored && frame != null && File(frame).isFile &&
                             syncing.add(shot.id)
@@ -1393,7 +1442,6 @@ class ProjectViewModel(private val container: AppContainer) : ViewModel() {
                         }
                         return@forEach
                     }
-                    val resultPath = task.results.firstOrNull()?.localPath
                     if (resultPath == null) {
                         container.projectStore.markFailed(project.id, shot.id, AppStrings.get(R.string.board_err_no_result))
                         return@forEach

@@ -1,6 +1,10 @@
 package com.comfyremote.app.data.repository
 
 import com.comfyremote.app.ComfyApi
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
+import kotlinx.coroutines.withContext
 import org.json.JSONObject
 import java.io.File
 
@@ -10,34 +14,47 @@ import java.io.File
  */
 class ObjectInfoCache(private val cacheDir: File) {
 
-    private var mem: JSONObject? = null
-    private var memKey: String? = null
+    private data class Cached(val server: String, val version: String, val loadedAt: Long, val data: JSONObject)
+    @Volatile private var cached: Cached? = null
+    @Volatile private var invalidated = false
+    private val mutex = Mutex()
 
-    suspend fun get(a: ComfyApi, serverVersion: String): JSONObject {
-        val key = a.base
-        mem?.let { if (memKey == key) return it }
-
-        val cacheFile = File(cacheDir, "object_info_${key.hashCode()}.json")
-        if (cacheFile.isFile) {
-            runCatching {
-                val o = JSONObject(cacheFile.readText())
-                if (o.optString("version") == serverVersion) {
-                    o.optJSONObject("data")?.let { data ->
-                        mem = data; memKey = key
-                        return data
+    suspend fun get(a: ComfyApi, serverVersion: String, force: Boolean = false): JSONObject =
+        withContext(Dispatchers.IO) {
+            mutex.withLock {
+                val now = System.currentTimeMillis()
+                val cacheFile = File(cacheDir, "object_info_${a.base.hashCode()}.json")
+                if (!force && !invalidated) {
+                    cached?.takeIf { it.server == a.base && it.version == serverVersion && isFresh(it.loadedAt, now) }
+                        ?.let { return@withLock it.data }
+                    if (cacheFile.isFile) {
+                        val saved = runCatching { JSONObject(cacheFile.readText()) }.getOrNull()
+                        val time = saved?.optLong("loadedAt") ?: 0L
+                        if (saved?.optString("server") == a.base &&
+                            saved.optString("version") == serverVersion && isFresh(time, now)) {
+                            saved.optJSONObject("data")?.let { data ->
+                                cached = Cached(a.base, serverVersion, time, data)
+                                return@withLock data
+                            }
+                        }
                     }
                 }
+                val fresh = a.objectInfo()
+                val loadedAt = System.currentTimeMillis()
+                runCatching {
+                    cacheFile.writeText(JSONObject().put("server", a.base).put("version", serverVersion)
+                        .put("loadedAt", loadedAt).put("data", fresh).toString())
+                }
+                cached = Cached(a.base, serverVersion, loadedAt, fresh)
+                invalidated = false
+                fresh
             }
         }
-        val fresh = a.objectInfo()
-        runCatching {
-            cacheFile.writeText(JSONObject().put("version", serverVersion).put("data", fresh).toString())
-        }
-        mem = fresh; memKey = key
-        return fresh
-    }
 
     fun invalidate() {
-        mem = null; memKey = null
+        cached = null
+        invalidated = true
     }
+
+    private fun isFresh(time: Long, now: Long): Boolean = now - time in 0..5 * 60_000L
 }

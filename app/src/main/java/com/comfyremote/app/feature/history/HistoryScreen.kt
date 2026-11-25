@@ -59,11 +59,17 @@ import com.comfyremote.app.ui.components.IrisTextField
 import com.comfyremote.app.ui.components.LargeTopBar
 import com.comfyremote.app.ui.components.TextAction
 
+private enum class ShotOutputAction { TAKE, TAKE_AND_TIMELINE, FIRST_FRAME, LAST_FRAME }
+
+private data class ShotOutputSelection(
+    val item: HistoryItem, val path: String, val projectId: String, val action: ShotOutputAction,
+)
+
 @Composable
 fun HistoryScreen(
     viewModel: HistoryViewModel,
     onReuse: (DraftTransfer) -> Unit,
-    onOpenProject: (String) -> Unit,
+    onOpenProject: (String, String?) -> Unit,
 ) {
     val history by viewModel.items.collectAsState()
     val historyLoadError by viewModel.historyLoadError.collectAsState()
@@ -81,7 +87,7 @@ fun HistoryScreen(
     var projectPicker by remember { mutableStateOf<Pair<HistoryItem, String>?>(null) }
     var rolePicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
     var actionPicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
-    var shotPicker by remember { mutableStateOf<Triple<HistoryItem, String, String>?>(null) }
+    var shotPicker by remember { mutableStateOf<ShotOutputSelection?>(null) }
     val context = LocalContext.current
 
     LaunchedEffect(message) { message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() } }
@@ -92,7 +98,7 @@ fun HistoryScreen(
                 actionLabel = context.getString(R.string.studio_back_to_project),
                 withDismissAction = true,
             )
-            if (action == SnackbarResult.ActionPerformed) onOpenProject(linked.projectId)
+            if (action == SnackbarResult.ActionPerformed) onOpenProject(linked.projectId, linked.shotId)
             viewModel.clearLinkedResult()
         }
     }
@@ -260,9 +266,23 @@ fun HistoryScreen(
                     }) { Text(stringResource(R.string.studio_history_as_asset)) }
                     if (kind == ProjectMediaLinks.Kind.VIDEO) {
                         TextButton(onClick = {
-                            shotPicker = Triple(item, path, projectId)
+                            shotPicker = ShotOutputSelection(item, path, projectId, ShotOutputAction.TAKE)
                             actionPicker = null
                         }) { Text(stringResource(R.string.studio_history_as_take)) }
+                        TextButton(onClick = {
+                            shotPicker = ShotOutputSelection(item, path, projectId, ShotOutputAction.TAKE_AND_TIMELINE)
+                            actionPicker = null
+                        }) { Text(stringResource(R.string.studio_history_as_take_and_timeline)) }
+                    }
+                    if (kind == ProjectMediaLinks.Kind.IMAGE) {
+                        TextButton(onClick = {
+                            shotPicker = ShotOutputSelection(item, path, projectId, ShotOutputAction.FIRST_FRAME)
+                            actionPicker = null
+                        }) { Text(stringResource(R.string.proj_shot_set_first_frame)) }
+                        TextButton(onClick = {
+                            shotPicker = ShotOutputSelection(item, path, projectId, ShotOutputAction.LAST_FRAME)
+                            actionPicker = null
+                        }) { Text(stringResource(R.string.proj_shot_set_last_frame)) }
                     }
                     if (ProjectMediaLinks.track(path) != null) {
                         TextButton(onClick = {
@@ -279,7 +299,7 @@ fun HistoryScreen(
         )
     }
 
-    shotPicker?.let { (item, path, projectId) ->
+    shotPicker?.let { (item, path, projectId, action) ->
         val project = storyboardProjects.firstOrNull { it.id == projectId }
         AlertDialog(
             onDismissRequest = { shotPicker = null },
@@ -289,7 +309,13 @@ fun HistoryScreen(
                     project?.shots?.forEachIndexed { index, shot ->
                         TextButton(
                             onClick = {
-                                viewModel.attachAsTake(projectId, shot.id, item, path)
+                                when (action) {
+                                    ShotOutputAction.TAKE -> viewModel.attachAsTake(projectId, shot.id, item, path)
+                                    ShotOutputAction.TAKE_AND_TIMELINE ->
+                                        viewModel.attachAsTake(projectId, shot.id, item, path, addToTimeline = true)
+                                    ShotOutputAction.FIRST_FRAME, ShotOutputAction.LAST_FRAME ->
+                                        viewModel.attachAsFrame(projectId, shot.id, item, path, first = action == ShotOutputAction.FIRST_FRAME)
+                                }
                                 shotPicker = null
                             },
                             enabled = shot.status != "running",

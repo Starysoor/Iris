@@ -19,8 +19,10 @@ import com.comfyremote.app.data.discovery.TailscaleDeviceDirectory
 import com.comfyremote.app.data.discovery.TailscalePeerSettingsStore
 import com.comfyremote.app.data.generation.CloudSubmissionGate
 import com.comfyremote.app.data.generation.GenerationManager
+import com.comfyremote.app.data.generation.GenerationRequest
 import com.comfyremote.app.data.generation.GenerationTaskStore
 import com.comfyremote.app.data.project.ProjectStore
+import com.comfyremote.app.data.project.StudioSubmissionPolicy
 import com.comfyremote.app.data.media.GalleryExporter
 import com.comfyremote.app.data.media.IncomingMediaRepository
 import com.comfyremote.app.data.repository.AiRepository
@@ -44,6 +46,7 @@ import com.comfyremote.app.data.repository.WorkflowRepository
 import com.comfyremote.app.data.repository.WorkflowUsageRepository
 import com.comfyremote.app.data.security.SecretStore
 import com.comfyremote.app.data.storyboard.StoryboardStore
+import com.comfyremote.app.ui.AppStrings
 
 /** Lightweight application-scoped dependency container. */
 class AppContainer(val app: Application) {
@@ -97,7 +100,7 @@ class AppContainer(val app: Application) {
 
     // Studio project index; holds the migrated legacy projects from here on.
     // storyboardStore stays readable as the frozen pre-migration snapshot.
-    val projectStore = ProjectStore(app)
+    val projectStore = ProjectStore(app) { projectExportController.sourcePaths }
     val projectAssetStore = com.comfyremote.app.data.project.ProjectAssetStore(app)
 
     val aiSettingsStore = AiSettingsStore(prefs, secretStore)
@@ -129,9 +132,14 @@ class AppContainer(val app: Application) {
 
     val historyRepository = HistoryRepository(
         HistoryStore(app) {
-            storyboardStore.referencedMediaPaths() + projectStore.referencedMediaPaths()
+            storyboardStore.referencedMediaPaths() + projectStore.referencedMediaPaths() +
+                projectExportController.sourcePaths
         }
     )
+    /** Lives at application scope; project exports continue after UI navigation. */
+    val projectExportController by lazy {
+        com.comfyremote.app.data.project.ProjectExportController(this)
+    }
     val objectInfoCache = ObjectInfoCache(app.cacheDir)
     val workflowRepository = WorkflowRepository(serverSession, objectInfoCache)
 
@@ -141,7 +149,29 @@ class AppContainer(val app: Application) {
 
     val generationTaskStore = GenerationTaskStore(app)
     val generationManager = GenerationManager(this, app)
-    val cloudSubmissionGate = CloudSubmissionGate(appSettingsStore, generationManager)
+    val cloudSubmissionGate = CloudSubmissionGate(appSettingsStore, generationManager, ::validateStudioSubmission)
+
+    private fun validateStudioSubmission(requests: List<GenerationRequest>) {
+        val rejection = StudioSubmissionPolicy.evaluate(
+            requests, generationManager.tasks.value, cloudSpendStore.entries.value,
+        ) { id ->
+            projectStore.project(id)?.let { project ->
+                StudioSubmissionPolicy.ProjectInfo(project.budget, project.shots.associate { it.id to it.status })
+            }
+        } ?: return
+        val message = when (rejection) {
+            is StudioSubmissionPolicy.Rejection.MissingProject,
+            is StudioSubmissionPolicy.Rejection.MissingShot -> AppStrings.get(R.string.proj_not_found)
+            is StudioSubmissionPolicy.Rejection.BusyShot -> AppStrings.get(R.string.gen_vm_storyboard_running)
+            is StudioSubmissionPolicy.Rejection.OverBudget -> AppStrings.get(
+                R.string.gen_vm_budget_blocked,
+                rejection.decision.budget,
+                rejection.decision.spentEstimate,
+                rejection.decision.newCost,
+            )
+        }
+        throw ComfyException(message)
+    }
 
     /** Clears unreferenced cloud inputs; queued tasks, drafts and history keep their files. */
     fun clearCloudInputCache() {
@@ -153,6 +183,9 @@ class AppContainer(val app: Application) {
             promptPresetRepository.load().forEach { addValues(it.values) }
             workflowDraftStore.all().forEach { addValues(it.values) }
             draftTransferRepository.peek()?.let { addValues(it.values) }
+            (projectStore.referencedMediaPaths() + projectExportController.sourcePaths).forEach {
+                add(CloudInputStore.PREFIX + it)
+            }
             generationManager.tasks.value.forEach { task ->
                 addValues(task.request.fieldValues)
                 addValues(task.seedValues)

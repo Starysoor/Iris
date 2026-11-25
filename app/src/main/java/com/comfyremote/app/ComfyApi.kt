@@ -14,12 +14,15 @@ import okhttp3.MediaType.Companion.toMediaType
 import okhttp3.MultipartBody
 import okhttp3.OkHttpClient
 import okhttp3.Request
+import okhttp3.RequestBody
+import okhttp3.RequestBody.Companion.asRequestBody
 import okhttp3.RequestBody.Companion.toRequestBody
 import okhttp3.Response
 import okhttp3.WebSocket
 import okhttp3.WebSocketListener
 import org.json.JSONArray
 import org.json.JSONObject
+import java.io.File
 import java.io.IOException
 import java.util.Locale
 import java.util.concurrent.TimeUnit
@@ -28,6 +31,13 @@ open class ComfyException(message: String) : IOException(message)
 
 /** Thrown when ComfyUI rejects a queued prompt (node_errors present). */
 class PromptValidationException(message: String) : ComfyException(message)
+
+internal fun invalidPromptImageNames(message: String): Set<String> =
+    Regex("Invalid image file:[ \\t]*([^\\r\\n]+)", RegexOption.IGNORE_CASE)
+        .findAll(message)
+        .map { it.groupValues[1].trim().removeSuffix("）").removeSuffix(")").trim() }
+        .filter(String::isNotEmpty)
+        .toSet()
 
 data class SysInfo(val version: String, val device: String, val vramGb: String)
 
@@ -47,6 +57,8 @@ data class WorkflowEntry(
     val providerLabel: String = "",
     /** Stable provider id so the Cloud tab can group models by vendor. */
     val providerId: String = "",
+    val version: String = "",
+    val unavailableReason: String = "",
 )
 
 data class OutputImage(
@@ -253,7 +265,7 @@ class ComfyApi(
     private fun viewUrl(img: OutputImage): String =
         "$base/view?filename=${urlEnc(img.filename)}&subfolder=${urlEnc(img.subfolder)}&type=${urlEnc(img.type)}"
 
-    suspend fun uploadImage(data: ByteArray, filename: String): String = withContext(Dispatchers.IO) {
+    suspend fun uploadImage(data: ByteArray, filename: String): String {
         val ext = filename.substringAfterLast('.', "png").lowercase()
         val mime = (when (ext) {
             "png" -> "image/png"
@@ -261,8 +273,15 @@ class ComfyApi(
             "gif" -> "image/gif"
             else -> "image/jpeg"
         }).toMediaType()
+        return uploadInput(filename, data.toRequestBody(mime))
+    }
+
+    suspend fun uploadMedia(file: File, contentType: String): String =
+        uploadInput(file.name, file.asRequestBody(contentType.toMediaType()))
+
+    private suspend fun uploadInput(filename: String, payload: RequestBody): String = withContext(Dispatchers.IO) {
         val body = MultipartBody.Builder().setType(MultipartBody.FORM)
-            .addFormDataPart("image", filename, data.toRequestBody(mime))
+            .addFormDataPart("image", filename, payload)
             .build()
         client.newCall(Request.Builder().url("$base/upload/image?overwrite=true").post(body).build())
             .execute().use { resp ->
@@ -277,11 +296,36 @@ class ComfyApi(
 
     /** Loads an image from the ComfyUI input directory (for reference thumbnails). */
     suspend fun fetchInputImage(name: String): Bitmap = withContext(Dispatchers.IO) {
-        val url = "$base/view?filename=${urlEnc(name)}&type=input"
+        val url = inputImageUrl(name)
         client.newCall(Request.Builder().url(url).build()).execute().use { resp ->
             if (!resp.isSuccessful) throw ComfyException("HTTP ${resp.code}")
             BitmapFactory.decodeStream(resp.body?.byteStream()) ?: throw ComfyException("decode failed")
         }
+    }
+
+    /** ComfyUI answers HEAD for input files without returning the image payload. */
+    suspend fun inputImageExists(name: String): Boolean = withContext(Dispatchers.IO) {
+        val request = Request.Builder().url(inputImageUrl(name))
+        val probe = probeClient
+        val head = probe.newCall(request.head().build()).execute().use { it.code }
+        val status = if (head == 405 || head == 501) {
+            probe.newCall(request.get().header("Range", "bytes=0-0").build()).execute().use { it.code }
+        } else head
+        when (status) {
+            in 200..299 -> true
+            400, 404 -> false
+            else -> throw ComfyException("Could not verify the ComfyUI reference image (HTTP $status)")
+        }
+    }
+
+    private fun inputImageUrl(name: String): String {
+        val annotated = Regex(" \\[(input|output|temp)]$").find(name)
+        val path = (annotated?.let { name.substring(0, it.range.first) } ?: name).replace('\\', '/')
+        return viewUrl(OutputImage(
+            filename = path.substringAfterLast('/'),
+            subfolder = path.substringBeforeLast('/', ""),
+            type = annotated?.groupValues?.get(1) ?: "input",
+        ))
     }
 
     suspend fun interrupt() {

@@ -31,15 +31,20 @@ class CustomOpenAiRepository(
 
     override suspend fun discoverModels(): List<String> {
         val account = account()
+        return discoverModelIds(settings, account) { discoverMetadata(account) }
+    }
+
+    private suspend fun discoverMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
         if (account.baseUrl.isBlank()) return emptyList()
         val root = CloudHttp.getJson(
             "${account.baseUrl.trimEnd('/')}/models",
             auth(account),
         )
-        return mergeCustomModels(
-            account.models,
-            modelIdsFromResponse(root.optJSONArray("data")),
-        )
+        val metadata = providerModelDirectory(root.optJSONArray("data"))
+        val picked = mergeCustomModels(account.models, metadata.map { it.id }) +
+            metadata.filter { it.kind == "image" }.map { it.id }
+        val byId = metadata.associateBy { it.id }
+        return picked.distinct().map { byId[it] ?: CloudModelMetadata(it) }
     }
 
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
@@ -47,21 +52,31 @@ class CustomOpenAiRepository(
         if (account.baseUrl.isBlank()) return emptyList()
         // Auto-discovery keeps a media-name hint, but a manually saved model list
         // is user intent and must not be filtered by Iris keywords.
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-        return settings.enabledModels(id, models).map(::summary)
+        return modelDirectory(settings, account, force) { discoverMetadata(account) }.map { model ->
+            model.summary(
+                kind = model.kind.ifBlank { "image" },
+                fallbackDescription = "Custom OpenAI-compatible Images API",
+                unavailableReason = unavailableReason(model),
+            ).copy(priceType = "custom_api")
+        }
     }
 
-    override suspend fun detail(workflowId: String): CloudWorkflowSpec = CloudWorkflowSpec(
-        id = workflowId,
-        name = workflowId,
-        kind = "image",
-        description = "Custom OpenAI-compatible image API",
-        rules = CloudModelParameters.openAiRules(workflowId),
-    )
+    override suspend fun detail(workflowId: String): CloudWorkflowSpec {
+        val metadata = settings.modelMetadata(account(), workflowId)
+        return CloudWorkflowSpec(
+            id = workflowId, name = workflowId, kind = metadata.kind.ifBlank { "image" },
+            description = "Custom OpenAI-compatible Images API",
+            rules = CloudModelParameters.openAiRules(workflowId),
+            unavailableReason = unavailableReason(metadata),
+        ).withMetadata(metadata)
+    }
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
         val account = account()
         if (account.baseUrl.isBlank()) throw ComfyException("Configure the custom API base URL first")
+        unavailableReason(settings.modelMetadata(account, workflowId)).takeIf(String::isNotBlank)?.let {
+            throw ComfyException(it)
+        }
         val headers = auth(account)
         val base = account.baseUrl.trimEnd('/')
         val references = CloudModelParameters.referenceImageInputs(body)
@@ -155,13 +170,9 @@ class CustomOpenAiRepository(
         CloudHttp.downloadTo(url, target)
     }
 
-    private fun summary(model: String) = CloudWorkflowSummary(
-        id = model,
-        name = model,
-        description = "Custom vision model",
-        kind = "image",
-        priceType = "custom_api",
-    )
+    private fun unavailableReason(model: CloudModelMetadata): String =
+        if (model.kind.isBlank() || model.kind == "image") "" else
+            "This model uses a different API than OpenAI Images."
 
     private fun extensionOf(url: String): String =
         url.substringBefore('?').substringAfterLast('.', "").lowercase().takeIf { it.length in 2..5 }.orEmpty()

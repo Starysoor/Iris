@@ -70,6 +70,19 @@ data class ProjectShot(
     val selectedTakeId: String? = null,
     val createdAt: Long = System.currentTimeMillis(),
     val updatedAt: Long = System.currentTimeMillis(),
+    val stageWorkflowPaths: Map<String, String> = emptyMap(),
+    val stageDrafts: List<StudioStageDraft> = emptyList(),
+) {
+    fun stageDraft(kind: String, path: String): StudioStageDraft? =
+        stageDrafts.firstOrNull { it.kind == kind && it.workflowPath == path }
+}
+
+/** Saved editable parameters for one model in one shot stage. Media uses the shot's bindings. */
+data class StudioStageDraft(
+    val kind: String,
+    val workflowPath: String,
+    val values: Map<String, String>,
+    val randomSeed: Boolean = true,
 )
 
 /** Scope of a consistency profile: one reusable character or scene identity. */

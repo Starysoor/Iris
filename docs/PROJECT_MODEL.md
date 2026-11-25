@@ -50,17 +50,17 @@ Iris v2.4 起，创作工作台的持久化中心从「分镜」（`storyboards.
 - 触发点：删除项目 / 删除镜头 / 删除素材（成功落盘后）。
 - 保护集合 `referencedMediaPaths()`：所有 shot 的 `resultPath`/`lastFramePath`/`referencePath`、全部 Take 的 `resultPath`、全部素材 `path`。
 - 删除规则：**先提交索引、再删文件**；仅清理 app-owned `filesDir/storyboards/` 下「新项目索引和**冻结的旧分镜回滚索引**均未引用，且 `lastModified` 早于 10 分钟宽限期」的媒体；对任意外部绝对路径、结果库媒体不得直接执行删除。
-- 跨 Store 保护：`AppContainer` 将 legacy store 与 project store 的引用集**并集**注入 `HistoryStore` 的 protectedMedia 钩子，结果页 History 的媒体清理永不破坏任一侧仍在引用的文件。
+- 跨 Store 保护：`HistoryStore` 保留旧分镜、所有项目及正在导出的时间线所引用的媒体。项目媒体和云端输入缓存清理也会检查正在导出的源文件。
 
 ## 时间线与成片导出（P2）
 
 - `Timeline`（视频轨 + 音频轨）/ `TimelineClip`（`tlc:` ID 前缀）：**按路径引用媒体**，同一文件可被多个片段引用；`referencedMediaPaths` 并入片段 sourcePath，删除镜头/Take/素材时仍被时间线引用的文件受保护。两个逻辑轨道并行：`totalDurationMs = max(videoDurationMs, audioDurationMs)`，不能把两条轨道时长相加；当前可导出时长只按视频轨计算。
-- **预览与导出共用同一份 timeline 数据**；预览保真度差异：ExoPlayer 顺序 playlist 应用裁剪，速度/音量/静音预览为 1x（对话框内明示），导出完整生效。
+- **预览与导出共用时间线和 Media3 合成计划**。预览合成为临时 MP4，关闭预览后清理文件。
 - **导出能力矩阵（media3 1.4.1，compileSdk 34 兼容的最终版本线）**：
   - ✅ 视频轨顺序导出：裁剪、0.25-4x 速度、0-200% 音量、静音、片段自带音频音画同步
   - ✅ 完整文件验证（可播放 + 时长 ±10%）；先严格校验所有源视频/裁剪边界，任何片段丢失或不可读取即拒绝导出；`.tmp → 验证 → 原子 rename`，绝不在原子重命名失败后复制为最终文件。
-  - 🧪 独立音轨混音（PR #91 待验证）：以另一条 EditedMediaItemSequence 与视频轨并行；叠加视频原音、支持逐片段裁剪/增益/静音/倍速，音频超过视频时长的部分被裁剪。严格检查所有音频源文件和有效裁剪；验证导出成片包含音轨。UI 提示预览不包含此独立音轨；**必须在真机完成解码、混音、音画同步验收后才能作为已通过功能发布**。当前只支持单个顺序音频轨，不支持多层叠加或渐变。
-- **导出生命周期**：ViewModel 作用域，关闭应用中止导出（tmp 不入结果页），需手动重试；前台服务化属后续增强。
+  - ✅ 独立音轨混音由 PR #91 接入，与视频轨并行并保留视频原声。每片段支持裁剪、增益、静音和倍速，音轨裁切到成片时长。当前提供一条顺序独立音频轨。 [PR #91](https://github.com/Starysoor/Iris/pull/91)
+- **导出生命周期**：从时间线发起后由 Android 前台服务运行，通知显示进度并提供取消。成功后将验证完成的 MP4 加入结果。进程中断时在时间线显示可重试状态。
 - 成片入库：`HistoryRepository.newMediaFile + add`（tags: `project-export`），结果页可见/可分享/可存相册。
 
 ## 预算字段语义（P1）

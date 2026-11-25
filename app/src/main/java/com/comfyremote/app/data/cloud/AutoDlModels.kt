@@ -83,6 +83,8 @@ data class CloudWorkflowSummary(
     val author: String = "",
     val usageCount: Int = 0,
     val pricing: CloudPricing? = null,
+    val version: String = "",
+    val unavailableReason: String = "",
 ) {
     fun toEntry(
         pathPrefix: String = AutoDlConfig.PATH_PREFIX,
@@ -99,6 +101,8 @@ data class CloudWorkflowSummary(
         priceLabel = pricing?.label.orEmpty(),
         providerLabel = providerLabel,
         providerId = providerId,
+        version = version,
+        unavailableReason = unavailableReason,
     )
 }
 
@@ -114,10 +118,14 @@ data class CloudInputRule(
     val minLength: Int? = null,
     val maxLength: Int? = null,
     val referenceRole: ReferenceRole = ReferenceRole.AUTO,
+    val acceptedMediaTypes: List<String> = emptyList(),
+    val label: String = "",
+    val description: String = "",
 ) {
     val isImage: Boolean get() = type == "image"
     val isAudio: Boolean get() = type == "audio"
     val isVideo: Boolean get() = type == "video"
+    val isMedia: Boolean get() = isImage || isAudio || isVideo
     val isText: Boolean get() = type == "prompt" || type == "string"
     val isSeed: Boolean get() = name == "seed" || name.endsWith("_seed")
 
@@ -135,6 +143,9 @@ data class CloudWorkflowSpec(
     val content: String = "",
     val rules: List<CloudInputRule>,
     val pricing: CloudPricing? = null,
+    val version: String = "",
+    val referenceUrl: String = "",
+    val unavailableReason: String = "",
 ) {
     fun rule(name: String): CloudInputRule? = rules.firstOrNull { it.name == name }
 
@@ -145,6 +156,9 @@ data class CloudWorkflowSpec(
         .put("kind", kind)
         .put("description", description)
         .put("content", content)
+        .put("version", version)
+        .put("referenceUrl", referenceUrl)
+        .put("unavailableReason", unavailableReason)
         .put("pricing", pricing?.let(::pricingToJson) ?: JSONObject.NULL)
         .put("rules", JSONArray().apply { rules.forEach { put(ruleToJson(it)) } })
 
@@ -166,6 +180,9 @@ data class CloudWorkflowSpec(
                 content = json.optString("content"),
                 rules = rules,
                 pricing = json.optJSONObject("pricing")?.let(::pricingFromJson),
+                version = json.optString("version"),
+                referenceUrl = json.optString("referenceUrl"),
+                unavailableReason = json.optString("unavailableReason"),
             )
         }
 
@@ -214,6 +231,9 @@ data class CloudWorkflowSpec(
             .put("minLength", rule.minLength ?: JSONObject.NULL)
             .put("maxLength", rule.maxLength ?: JSONObject.NULL)
             .put("referenceRole", rule.referenceRole.name)
+            .put("acceptedMediaTypes", JSONArray(rule.acceptedMediaTypes))
+            .put("label", rule.label)
+            .put("description", rule.description)
 
         fun ruleFromJson(json: JSONObject): CloudInputRule = CloudInputRule(
             name = json.optString("name"),
@@ -228,6 +248,9 @@ data class CloudWorkflowSpec(
             minLength = if (json.isNull("minLength")) null else json.optInt("minLength"),
             referenceRole = ReferenceRole.fromStorage(json.optString("referenceRole")),
             maxLength = if (json.isNull("maxLength")) null else json.optInt("maxLength"),
+            acceptedMediaTypes = json.optJSONArray("acceptedMediaTypes").strings(),
+            label = json.optString("label"),
+            description = json.optString("description"),
         )
     }
 }
@@ -260,14 +283,15 @@ object CloudWorkflowParser {
             val priceType = o.optString("price_type")
             out += CloudWorkflowSummary(
                 id = id,
-                name = o.optString("name", id),
+                name = o.optString("name").ifBlank { id },
                 description = o.optString("description"),
-                kind = kindOf(priceType, o.optString("name")),
+                kind = kindOf(o),
                 priceType = priceType,
                 coverUrl = o.optString("cover_image_url"),
                 author = o.optString("author_nickname").ifBlank { o.optString("author_name") },
                 usageCount = o.optInt("usage_count_7d"),
                 pricing = parsePricing(o.optJSONObject("billing_config"), priceType),
+                version = o.optString("version"),
             )
         }
         return out to data.optInt("max_page", 1).coerceAtLeast(1)
@@ -283,7 +307,7 @@ object CloudWorkflowParser {
                 val rawDefault = rule.opt("default")
                 rules += CloudInputRule(
                     name = name,
-                    type = rule.optString("type", "string"),
+                    type = rule.optString("type", "string").trim().lowercase(),
                     required = rule.optBoolean("required", false),
                     defaultValue = when (rawDefault) {
                         null, JSONObject.NULL -> null
@@ -291,8 +315,8 @@ object CloudWorkflowParser {
                         is Number -> rawDefault.toString()
                         else -> rawDefault.toString()
                     },
-                    min = rule.opt("min")?.takeIf { it is Number }?.toString()?.toDoubleOrNull(),
-                    max = rule.opt("max")?.takeIf { it is Number }?.toString()?.toDoubleOrNull(),
+                    min = rule.opt("min")?.toString()?.toDoubleOrNull()?.takeIf(Double::isFinite),
+                    max = rule.opt("max")?.toString()?.toDoubleOrNull()?.takeIf(Double::isFinite),
                     options = rule.optJSONArray("options")?.let { array ->
                         (0 until array.length()).mapNotNull { index ->
                             val option = array.optJSONObject(index)
@@ -305,19 +329,23 @@ object CloudWorkflowParser {
                     referenceRole = ReferenceRole.fromStorage(
                         rule.optString("reference_role", rule.optString("referenceRole", ""))
                     ),
+                    acceptedMediaTypes = rule.optJSONArray("accept_types").strings(),
+                    label = rule.optString("display_name").ifBlank { rule.optString("label") },
+                    description = rule.optString("description").ifBlank { rule.optString("tooltip") },
                 )
             }
         }
         val priceType = data.optString("price_type")
-        val kind = kindOf(priceType, data.optString("name"))
         return CloudWorkflowSpec(
             id = id,
-            name = data.optString("name", id),
-            kind = kind,
+            name = data.optString("name").ifBlank { id },
+            kind = kindOf(data),
             description = data.optString("description"),
             content = data.optString("content"),
             rules = rules,
             pricing = parsePricing(data.optJSONObject("billing_config"), priceType),
+            version = data.optString("version"),
+            referenceUrl = data.optString("api_reference_url"),
         )
     }
 
@@ -377,11 +405,23 @@ object CloudWorkflowParser {
         )
     }
 
-    private fun kindOf(priceType: String, name: String): String = when {
-        priceType == "audio_sec_cost" -> "audio"
-        priceType == "video_sec_cost" || priceType == "minimax_h3" -> "video"
-        name.contains("视频", true) || name.contains("video", true) -> "video"
-        name.contains("语音", true) || name.contains("tts", true) -> "audio"
-        else -> "image"
+    private fun kindOf(data: JSONObject): String {
+        val declared = data.optString("output_type").lowercase()
+        if (declared in setOf("image", "audio", "video")) return declared
+        val name = data.optString("name")
+        return when (data.optString("price_type")) {
+            "audio_sec_cost" -> "audio"
+            "video_sec_cost", "minimax_h3" -> "video"
+            else -> when {
+                name.contains("视频", true) || name.contains("video", true) -> "video"
+                name.contains("语音", true) || name.contains("tts", true) -> "audio"
+                else -> "image"
+            }
+        }
     }
 }
+
+private fun JSONArray?.strings(): List<String> =
+    if (this == null) emptyList() else (0 until length()).mapNotNull { index ->
+        optString(index).trim().takeIf(String::isNotEmpty)
+    }

@@ -97,6 +97,9 @@ data class WorkflowsUiState(
 
     val selectedCloudProvider: CloudProviderCard?
         get() = selectedCloudProviderId?.let { id -> cloudProviderCards.firstOrNull { it.id == id } }
+
+    val cloudListError: String?
+        get() = if (selectedCloudProviderId == null) cloudError else selectedCloudProvider?.error
 }
 
 data class CloudWorkflowSection(
@@ -296,6 +299,12 @@ class WorkflowsViewModel(private val container: AppContainer) : ViewModel() {
     fun load() {
         if (_state.value.source == WorkflowSource.CLOUD) loadCloud(force = true)
         else loadInternal(force = false)
+    }
+
+    fun refreshLocal(refreshDefinition: Boolean = false) {
+        if (_state.value.source != WorkflowSource.LOCAL) return
+        if (refreshDefinition) container.objectInfoCache.invalidate()
+        loadInternal(force = false)
     }
 
     fun loadCloud(force: Boolean = false) {

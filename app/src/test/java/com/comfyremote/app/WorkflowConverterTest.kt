@@ -149,15 +149,74 @@ class WorkflowConverterTest {
     }
 
     @Test
-    fun subgraphWorkflowProducesExplicitWarning() {
-        val base = JSONObject(readRes("fixtures/sdxl_anime.json"))
-        val wf = JSONObject(base.toString())
-        wf.put("definitions", JSONObject().put("subgraphs", org.json.JSONArray().put(JSONObject().put("id", "s1"))))
-        val conv = WorkflowConverter.convert(wf.toString(), info())
-        assertTrue(conv.warnings.any { it.contains("子图") || it.contains("Subgraph") })
-        // normal workflow has no such warning
-        val clean = WorkflowConverter.convert(readRes("fixtures/sdxl_anime.json"), info())
-        assertTrue(clean.warnings.none { it.contains("子图") })
+    fun nestedSubgraphsKeepObjectLinksAndTheHostWidgetValue() {
+        val schema = JSONObject("""
+            {
+              "Text":{"input":{"required":{"text":["STRING",{}]}}},
+              "Output":{"input":{"required":{"text":["STRING",{"forceInput":true}]}}}
+            }
+        """)
+        val workflow = """
+            {
+              "version":1,
+              "nodes":[
+                {"id":3,"type":"outer","inputs":[{"name":"text","widget":{"name":"text"}}],"widgets_values":["host value"]},
+                {"id":9,"type":"Output","inputs":[{"name":"text","link":6}]}
+              ],
+              "links":[{"id":6,"origin_id":3,"origin_slot":0,"target_id":9,"target_slot":0}],
+              "definitions":{"subgraphs":[
+                {
+                  "id":"outer", "inputNode":{"id":-10},"outputNode":{"id":-20},
+                  "inputs":[{"name":"text","linkIds":[1]}],"outputs":[{"name":"out","linkIds":[2]}],
+                  "nodes":[{"id":2,"type":"inner","inputs":[{"name":"text","link":1}]}],
+                  "links":[{"id":1,"origin_id":-10,"origin_slot":0,"target_id":2,"target_slot":0},
+                           {"id":2,"origin_id":2,"origin_slot":0,"target_id":-20,"target_slot":0}]
+                },
+                {
+                  "id":"inner", "inputNode":{"id":-10},"outputNode":{"id":-20},
+                  "inputs":[{"name":"text","linkIds":[1]}],"outputs":[{"name":"out","linkIds":[2]}],
+                  "nodes":[{"id":1,"type":"Text","inputs":[{"name":"text","link":1,"widget":{"name":"text"}}],"widgets_values":["old"]}],
+                  "links":[{"id":1,"origin_id":-10,"origin_slot":0,"target_id":1,"target_slot":0},
+                           {"id":2,"origin_id":1,"origin_slot":0,"target_id":-20,"target_slot":0}]
+                }
+              ]}
+            }
+        """.trimIndent()
+        val converted = WorkflowConverter.convert(workflow, schema)
+        assertTrue(converted.blockingProblems.toString(), converted.blockingProblems.isEmpty())
+        assertEquals("3:2:1", converted.prompt.getJSONObject("9").getJSONObject("inputs").getJSONArray("text").getString(0))
+        assertEquals("host value", converted.prompt.getJSONObject("3:2:1").getJSONObject("inputs").getString("text"))
+        assertEquals("host value", converted.fields.single().value)
+    }
+
+    @Test
+    fun brokenCanvasLinkIdentifiesTheDestinationField() {
+        val workflow = """{"version":1,"nodes":[{"id":9,"type":"Output","inputs":[{"name":"text","link":6}]}],"links":[]}"""
+        val schema = JSONObject("""{"Output":{"input":{"required":{"text":["STRING",{"forceInput":true}]}}}}""")
+        val converted = WorkflowConverter.convert(workflow, schema)
+        assertTrue(converted.blockingProblems.single().contains("#9 · text"))
+    }
+
+    @Test
+    fun nullLoraTitlesFallBackToClassNameAndDuplicateLabelsKeepTheNodeId() {
+        val schema = JSONObject("""
+            {
+              "LoraLoader": {
+                "display_name": null,
+                "input": {"required": {"lora_name": [["one.safetensors", "two.safetensors"]]}}
+              }
+            }
+        """)
+        val prompt = """
+            {
+              "1":{"class_type":"LoraLoader","_meta":{"title":null},"inputs":{"lora_name":"one.safetensors"}},
+              "2":{"class_type":"LoraLoader","inputs":{"lora_name":"two.safetensors"}}
+            }
+        """.trimIndent()
+
+        val fields = WorkflowConverter.convert(prompt, schema).fields
+        assertEquals(setOf("1:lora_name", "2:lora_name"), fields.map { it.key }.toSet())
+        assertTrue(fields.all { it.label.contains("LoraLoader") && it.label.endsWith("#${it.nodeId}") })
     }
 
     @Test

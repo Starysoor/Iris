@@ -267,16 +267,20 @@ internal fun WorkflowRow(
         subtitleMaxLines = if (workflow.cloud) 2 else 1,
         footer = if (workflow.cloud) {
             {
-                Text(
-                    stringResource(
-                        R.string.wf_cloud_id,
-                        workflow.path.substringAfter(':'),
-                    ),
-                    style = IrisType.metaSmall,
-                    color = MaterialTheme.colorScheme.primary,
-                    maxLines = 1,
-                    overflow = TextOverflow.Ellipsis,
-                )
+                Column {
+                    Text(
+                        stringResource(R.string.wf_cloud_id, workflow.path.substringAfter(':')) +
+                            workflow.version.takeIf(String::isNotBlank)?.let { " · $it" }.orEmpty(),
+                        style = IrisType.metaSmall,
+                        color = MaterialTheme.colorScheme.primary,
+                        maxLines = 2,
+                        overflow = TextOverflow.Ellipsis,
+                    )
+                    if (workflow.unavailableReason.isNotBlank()) {
+                        Text(workflow.unavailableReason, style = IrisType.metaSmall,
+                            color = MaterialTheme.colorScheme.error)
+                    }
+                }
             }
         } else null,
         accent = favorite,

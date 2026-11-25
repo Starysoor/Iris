@@ -258,7 +258,8 @@ class ProjectArchive(
                     )
                 },
                 stageMediaBindings = source.stageMediaBindings.map {
-                    it.copy(assetId = remapAsset(it.assetId))
+                    val shotId = it.shotId?.let { id -> shotIds[id] ?: throw IOException("Missing shot reference") }
+                    it.copy(assetId = remapAsset(it.assetId), shotId = shotId)
                 },
                 timeline = source.timeline?.let { timeline ->
                     timeline.copy(

@@ -6,7 +6,6 @@ import androidx.lifecycle.viewModelScope
 import com.comfyremote.app.AppContainer
 import com.comfyremote.app.data.generation.GenerationPhase
 import com.comfyremote.app.data.generation.GenerationTask
-import com.comfyremote.app.data.project.BudgetGate
 import com.comfyremote.app.data.repository.DraftTransfer
 import com.comfyremote.app.navigation.Routes
 import com.comfyremote.app.R
@@ -30,6 +29,7 @@ data class TasksUiState(
     val localQueuePaused: Boolean = false,
     /** Null = all, empty = independent, otherwise the Studio project ID. */
     val projectFilter: String? = null,
+    val shotFilter: String? = null,
 ) {
     val visible: List<GenerationTask>
         get() = tasks.asSequence()
@@ -42,18 +42,18 @@ data class TasksUiState(
                     TaskFilter.DONE -> task.isTerminal
                 }
             }
-            .filter { TaskBulkSelection.matchesScope(it, serverUrl, projectFilter) }
+            .filter { TaskBulkSelection.matchesScope(it, serverUrl, projectFilter, shotFilter) }
             .sortedWith(compareByDescending<GenerationTask> { it.isActive }.thenByDescending { it.createdAt })
             .toList()
 
     val queuedTargets: List<GenerationTask>
-        get() = TaskBulkSelection.queued(tasks, serverUrl, projectFilter)
+        get() = TaskBulkSelection.queued(tasks, serverUrl, projectFilter, shotFilter)
 
     val failedTargets: List<GenerationTask>
-        get() = TaskBulkSelection.failed(tasks, serverUrl, projectFilter)
+        get() = TaskBulkSelection.failed(tasks, serverUrl, projectFilter, shotFilter)
 
     val finishedTargets: List<GenerationTask>
-        get() = TaskBulkSelection.finished(tasks, serverUrl, projectFilter)
+        get() = TaskBulkSelection.finished(tasks, serverUrl, projectFilter, shotFilter)
 
     val serverUrls: List<String>
         get() = tasks.map { it.request.serverUrl }.filter(String::isNotBlank).distinct()
@@ -63,7 +63,7 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
     val tasks: StateFlow<List<GenerationTask>> = container.generationManager.tasks
     private val _filter = MutableStateFlow(TaskFilter.ALL)
     private val _serverUrl = MutableStateFlow<String?>(null)
-    private val _projectFilter = MutableStateFlow<String?>(null)
+    private val _studioScope = MutableStateFlow<Pair<String?, String?>>(null to null)
     val projects = container.projectStore.projects
 
     val uiState: StateFlow<TasksUiState> = combine(
@@ -71,13 +71,13 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
         _filter,
         _serverUrl,
         container.generationManager.localQueuePaused,
-        _projectFilter,
-    ) { list, filter, serverUrl, paused, projectFilter ->
-        TasksUiState(list, filter, serverUrl, paused, projectFilter)
+        _studioScope,
+    ) { list, filter, serverUrl, paused, scope ->
+        TasksUiState(list, filter, serverUrl, paused, scope.first, scope.second)
     }.stateIn(
         viewModelScope,
         SharingStarted.Eagerly,
-        TasksUiState(tasks.value, _filter.value, _serverUrl.value, container.generationManager.localQueuePaused.value, _projectFilter.value),
+        TasksUiState(tasks.value, _filter.value, _serverUrl.value, container.generationManager.localQueuePaused.value),
     )
 
     private val _message = MutableStateFlow<String?>(null)
@@ -98,17 +98,22 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
 
     fun setFilter(filter: TaskFilter) { _filter.value = filter }
     fun setServerFilter(url: String?) { _serverUrl.value = url }
-    fun setProjectFilter(projectId: String?) { _projectFilter.value = projectId }
+    fun setProjectFilter(projectId: String?) { _studioScope.value = projectId to null }
+    fun setShotFilter(shotId: String?) {
+        val projectId = _studioScope.value.first?.takeIf(String::isNotBlank) ?: return
+        _studioScope.value = projectId to shotId
+    }
     fun toggleLocalQueuePaused() = container.generationManager.toggleLocalQueuePaused()
 
     fun delete(id: String) { container.generationManager.deleteTask(id) }
     fun deleteFinished() {
         // Bulk actions must never erase finished tasks from another selected project
         // or server. Preserve the original atomic global path for the unfiltered view.
-        if (_projectFilter.value == null && _serverUrl.value == null) {
+        val (projectId, shotId) = _studioScope.value
+        if (projectId == null && _serverUrl.value == null) {
             container.generationManager.deleteFinished()
         } else {
-            TaskBulkSelection.finished(tasks.value, _serverUrl.value, _projectFilter.value)
+            TaskBulkSelection.finished(tasks.value, _serverUrl.value, projectId, shotId)
                 .forEach { container.generationManager.deleteTask(it.taskId) }
         }
     }
@@ -122,12 +127,10 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
     }
 
     fun cancelQueued() {
+        val (projectId, shotId) = _studioScope.value
+        val ids = TaskBulkSelection.queued(tasks.value, _serverUrl.value, projectId, shotId).map { it.taskId }
         viewModelScope.launch {
-            // Capture the user-visible scope before any suspension or remote call.
-            val outcomes = container.generationManager.cancelMany(
-                TaskBulkSelection.queued(tasks.value, _serverUrl.value, _projectFilter.value)
-                    .map { it.taskId },
-            )
+            val outcomes = container.generationManager.cancelMany(ids)
             val failed = outcomes.count { !it.cancelled && it.error != null }
             _message.value = if (failed > 0) {
                 AppStrings.get(R.string.tasks_msg_cancel_partial, failed)
@@ -137,32 +140,10 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
         }
     }
 
-    /** A tasks-page retry is still a *new* paid request: do not bypass Studio budget
-     * enforcement simply because the user retried from Tasks rather than Create. */
-    private fun projectRetryError(requests: List<com.comfyremote.app.data.generation.GenerationRequest>): String? {
-        val rejection = TasksRetryPolicy.evaluate(
-            requests, tasks.value, container.cloudSpendStore.entries.value,
-        ) { projectId ->
-            container.projectStore.project(projectId)?.let { project ->
-                TasksRetryPolicy.ProjectInfo(project.budget, project.shots.associate { it.id to it.status })
-            }
-        } ?: return null
-        return when (rejection) {
-            is TasksRetryPolicy.Rejection.MissingProject,
-            is TasksRetryPolicy.Rejection.MissingShot -> AppStrings.get(R.string.proj_not_found)
-            is TasksRetryPolicy.Rejection.BusyShot -> AppStrings.get(R.string.gen_vm_storyboard_running)
-            is TasksRetryPolicy.Rejection.OverBudget -> AppStrings.get(
-                R.string.gen_vm_budget_blocked,
-                rejection.decision.budget,
-                rejection.decision.spentEstimate,
-                rejection.decision.newCost,
-            )
-        }
-    }
-
     fun retryFailed() {
         val serverUrl = _serverUrl.value
-        val requests = TaskBulkSelection.failed(tasks.value, serverUrl, _projectFilter.value)
+        val (projectId, shotId) = _studioScope.value
+        val requests = TaskBulkSelection.failed(tasks.value, serverUrl, projectId, shotId)
             .sortedBy { it.createdAt }
             .map {
                 it.request.copy(
@@ -174,7 +155,6 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
             _message.value = AppStrings.get(R.string.tasks_msg_no_failed)
             return
         }
-        projectRetryError(requests)?.let { _message.value = it; return }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(requests, localQueue = true)
@@ -202,7 +182,6 @@ class TasksViewModel(private val container: AppContainer) : ViewModel() {
             id = java.util.UUID.randomUUID().toString(),
             createdAt = System.currentTimeMillis(),
         )
-        projectRetryError(listOf(request))?.let { _message.value = it; return }
         viewModelScope.launch {
             val ids = try {
                 container.cloudSubmissionGate.submit(listOf(request), localQueue = false)

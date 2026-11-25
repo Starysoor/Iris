@@ -5,6 +5,7 @@ import com.comfyremote.app.data.security.SecretVault
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.asStateFlow
+import org.json.JSONArray
 import org.json.JSONObject
 
 data class CloudProviderAccount(
@@ -66,7 +67,10 @@ class CloudProviderSettingsStore(
     fun hasSavedModels(providerId: String): Boolean =
         prefs.contains("cloud_${providerId}_models")
 
+    @Synchronized
     fun save(providerId: String, baseUrl: String, token: String, models: List<String>) {
+        val credentialsChanged = secrets.get("cloud_${providerId}_token").orEmpty() != token ||
+            prefs.getString("cloud_${providerId}_base", baseUrl).orEmpty().trimEnd('/') != baseUrl.trim().trimEnd('/')
         secrets.put("cloud_${providerId}_token", token)
         prefs.edit()
             .putString("cloud_${providerId}_base", baseUrl.trim())
@@ -74,6 +78,7 @@ class CloudProviderSettingsStore(
                 "cloud_${providerId}_models",
                 models.map(String::trim).filter(String::isNotBlank).distinct().joinToString(","),
             )
+            .apply { if (credentialsChanged) remove(directoryKey(providerId)) }
             .apply()
         bump()
     }
@@ -94,6 +99,7 @@ class CloudProviderSettingsStore(
     }
 
     /** Removes credentials, endpoint overrides and model selection for one provider. */
+    @Synchronized
     fun clear(providerId: String) {
         secrets.put("cloud_${providerId}_token", "")
         prefs.edit()
@@ -104,6 +110,7 @@ class CloudProviderSettingsStore(
             .remove("cloud_${providerId}_disabled_models")
             .remove("cloud_${providerId}_default_model")
             .remove("cloud_${providerId}_enabled")
+            .remove(directoryKey(providerId))
             .apply()
         bump()
     }
@@ -136,6 +143,56 @@ class CloudProviderSettingsStore(
         val disabled = disabledModels(providerId)
         return models.filterNot { it in disabled }
     }
+
+    internal fun selectedModelMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
+        val directory = readModelDirectory(account)
+        return enabledModels(account.providerId, account.models).map { directory[it] ?: CloudModelMetadata(it) }
+    }
+
+    internal fun modelMetadata(account: CloudProviderAccount, modelId: String): CloudModelMetadata =
+        readModelDirectory(account)[modelId] ?: CloudModelMetadata(modelId)
+
+    @Synchronized
+    internal fun cacheModelDirectory(
+        account: CloudProviderAccount,
+        found: List<CloudModelMetadata>,
+        updateSelection: Boolean,
+    ): List<CloudModelMetadata> {
+        val current = this.account(account.providerId, account.baseUrl)
+        if (current.baseUrl != account.baseUrl || current.token != account.token) return emptyList()
+        val previous = readModelDirectory(current)
+        val foundById = found.associateBy { it.id }
+        val chosen = when {
+            !updateSelection -> current.models
+            !hasSavedModels(account.providerId) -> found.map { it.id }
+            previous.isEmpty() -> current.models
+            else -> {
+                val selected = current.models.filter { it !in previous || it in foundById }
+                val followsWholeDirectory = current.models.isNotEmpty() && current.models.containsAll(previous.keys)
+                if (followsWholeDirectory) (selected + foundById.keys).distinct() else selected
+            }
+        }
+        val directory = JSONObject()
+            .put("base", account.baseUrl.trimEnd('/'))
+            .put("models", JSONArray().apply { found.forEach { put(it.toJson()) } })
+        prefs.edit().putString(directoryKey(account.providerId), directory.toString()).apply {
+            if (updateSelection && (hasSavedModels(account.providerId) || chosen.isNotEmpty())) {
+                putString("cloud_${account.providerId}_models", chosen.joinToString(","))
+            }
+        }.apply()
+        return enabledModels(account.providerId, chosen).map { foundById[it] ?: CloudModelMetadata(it) }
+    }
+
+    private fun readModelDirectory(account: CloudProviderAccount): Map<String, CloudModelMetadata> = runCatching {
+        val raw = prefs.getString(directoryKey(account.providerId), null) ?: return emptyMap()
+        val root = JSONObject(raw)
+        if (root.optString("base") != account.baseUrl.trimEnd('/')) return emptyMap()
+        val entries = root.optJSONArray("models") ?: return emptyMap()
+        (0 until entries.length()).mapNotNull { entries.optJSONObject(it)?.let(CloudModelMetadata::fromJson) }
+            .associateBy { it.id }
+    }.getOrDefault(emptyMap())
+
+    private fun directoryKey(providerId: String): String = "cloud_${providerId}_discovered_models"
 
     fun defaultModel(providerId: String): String =
         prefs.getString("cloud_${providerId}_default_model", "").orEmpty()

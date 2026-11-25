@@ -25,6 +25,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.SnackbarHostState
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
@@ -33,6 +34,9 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.res.stringResource
 import androidx.compose.ui.unit.dp
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
 import com.comfyremote.app.R
 import com.comfyremote.app.WorkflowEntry
 import com.comfyremote.app.data.repository.DraftTransfer
@@ -64,6 +68,15 @@ fun WorkflowsScreen(
     val snackbar = remember { SnackbarHostState() }
     val listState = rememberLazyListState()
     val cloud = state.source == WorkflowSource.CLOUD
+    val lifecycle = LocalLifecycleOwner.current.lifecycle
+
+    DisposableEffect(lifecycle, viewModel) {
+        val observer = LifecycleEventObserver { _, event ->
+            if (event == Lifecycle.Event.ON_RESUME) viewModel.refreshLocal()
+        }
+        lifecycle.addObserver(observer)
+        onDispose { lifecycle.removeObserver(observer) }
+    }
 
     LaunchedEffect(state.message) {
         state.message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -87,7 +100,7 @@ fun WorkflowsScreen(
                 onRefresh = {
                     if (cloud) viewModel.loadCloud(force = true)
                     else {
-                        viewModel.load()
+                        viewModel.refreshLocal(refreshDefinition = true)
                         viewModel.refreshServerHealth()
                     }
                 },
@@ -270,7 +283,7 @@ fun WorkflowsScreen(
             }
 
             val loading = if (cloud) state.cloudLoading else state.loading
-            val error = if (cloud) state.cloudError else state.error
+            val error = if (cloud) state.cloudListError else state.error
             when {
                 loading && state.visible.isEmpty() -> item("loading") {
                     Box(Modifier.fillMaxWidth().padding(Spacing.xl), contentAlignment = Alignment.Center) {

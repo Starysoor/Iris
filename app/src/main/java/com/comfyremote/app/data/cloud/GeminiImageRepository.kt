@@ -29,33 +29,38 @@ class GeminiImageRepository(
 
     override suspend fun discoverModels(): List<String> {
         val account = account()
+        return discoverModelIds(settings, account) { discoverMetadata(account) }
+    }
+
+    private suspend fun discoverMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
         if (account.token.isBlank()) throw ComfyException("Configure a Gemini API key first")
-        val root = CloudHttp.getJson(
-            "${account.baseUrl.trimEnd('/')}/models",
-            auth(account),
-        )
-        // Imagen uses a different :predict contract; only list models that this
-        // adapter can actually call through :generateContent.
-        return modelIdsFromResponse(root.optJSONArray("models"), idKey = "name")
-            .map { it.removePrefix("models/") }
-            .filter { model ->
-                val lower = model.lowercase()
-                lower.startsWith("gemini") && "image" in lower
+        val headers = auth(account)
+        val endpoint = "${account.baseUrl.trimEnd('/')}/models"
+        val seen = mutableSetOf<String>()
+        val models = mutableListOf<CloudModelMetadata>()
+        var page = ""
+        do {
+            val url = if (page.isBlank()) endpoint else "$endpoint?pageToken=" +
+                java.net.URLEncoder.encode(page, "UTF-8")
+            val root = CloudHttp.getJson(url, headers)
+            models += providerModelDirectory(root.optJSONArray("models"), idKey = "name").mapNotNull { entry ->
+                val modelId = entry.id.removePrefix("models/")
+                val leaf = modelId.lowercase()
+                val imageCapable = entry.kind == "image" ||
+                    (entry.kind.isBlank() && leaf.startsWith("gemini") && "image" in leaf)
+                entry.copy(id = modelId, kind = "image").takeIf { imageCapable || leaf.startsWith("imagen-") }
             }
+            page = root.optString("nextPageToken")
+        } while (page.isNotBlank() && seen.add(page))
+        return models
     }
 
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
         val account = account()
         if (account.token.isBlank()) return emptyList()
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-        return settings.enabledModels(id, models).map { model ->
-            CloudWorkflowSummary(
-                id = model,
-                name = displayName(model),
-                description = "Google ${displayName(model)} image generation",
-                kind = "image",
-                priceType = "official_api",
-            )
+        return modelDirectory(settings, account, force) { discoverMetadata(account) }.map { model ->
+            model.summary("image", fallbackName = displayName(model.id),
+                fallbackDescription = "Google image generation")
         }
     }
 
@@ -63,9 +68,10 @@ class GeminiImageRepository(
         id = workflowId,
         name = displayName(workflowId),
         kind = "image",
-        description = "Google image generation API",
+        description = if (isImagen(workflowId)) "Text-to-image generation with Google Imagen."
+            else "Image generation and reference-based editing with Gemini.",
         rules = rulesFor(workflowId),
-    )
+    ).withMetadata(settings.modelMetadata(account(), workflowId))
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
         val account = account()
@@ -75,13 +81,39 @@ class GeminiImageRepository(
         val prompt = body.optString("prompt").trim()
         if (prompt.isBlank()) throw ComfyException("Prompt is required")
         val aspect = body.optString("aspect_ratio").ifBlank { "1:1" }
-        val items = submitGemini(base, workflowId, prompt, aspect, body, headers)
+        val items = if (isImagen(workflowId)) {
+            submitImagen(base, workflowId, prompt, aspect, body, headers)
+        } else submitGemini(base, workflowId, prompt, aspect, body, headers)
         if (items.isEmpty()) throw ComfyException("Provider returned no images")
         val taskId = UUID.randomUUID().toString()
         val result = CloudTaskResult(taskId, "SUCCESS", items, "", 0)
         results[taskId] = result
         taskStore.saveResult(id, taskId, result)
         return taskId
+    }
+
+    private fun submitImagen(
+        base: String,
+        model: String,
+        prompt: String,
+        aspect: String,
+        body: JSONObject,
+        headers: Map<String, String>,
+    ): List<CloudResult> {
+        val payload = JSONObject()
+            .put("instances", JSONArray().put(JSONObject().put("prompt", prompt)))
+            .put("parameters", JSONObject()
+                .put("sampleCount", body.optInt("sample_count", 1))
+                .put("aspectRatio", aspect))
+        val response = CloudHttp.postJson("$base/models/${model.removePrefix("models/")}:predict", payload, headers)
+        val predictions = response.optJSONArray("predictions")
+            ?: throw ComfyException(CloudHttp.errorMessage(response, "Imagen returned no predictions"))
+        return (0 until predictions.length()).mapNotNull { index ->
+            val prediction = predictions.optJSONObject(index) ?: return@mapNotNull null
+            val bytes = prediction.optString("bytesBase64Encoded").takeIf(String::isNotBlank) ?: return@mapNotNull null
+            val mime = prediction.optString("mimeType").ifBlank { "image/png" }
+            CloudResult("data:$mime;base64,$bytes", "image", mime.substringAfter('/'), "output")
+        }
     }
 
     private fun submitGemini(
@@ -111,7 +143,7 @@ class GeminiImageRepository(
                 ),
             )
             .put("generationConfig", generationConfig)
-        val response = CloudHttp.postJson("${base}/models/${model}:generateContent", payload, headers)
+        val response = CloudHttp.postJson("${base}/models/${model.removePrefix("models/")}:generateContent", payload, headers)
         val responseParts = response.optJSONArray("candidates")
             ?.optJSONObject(0)
             ?.optJSONObject("content")
@@ -151,13 +183,21 @@ class GeminiImageRepository(
         CloudHttp.downloadTo(url, target)
     }
 
-    private fun rulesFor(model: String): List<CloudInputRule> =
-        CloudModelParameters.geminiRules(model)
+    private fun isImagen(model: String): Boolean = model.removePrefix("models/").startsWith("imagen-", ignoreCase = true)
+
+    private fun rulesFor(model: String): List<CloudInputRule> = if (isImagen(model)) {
+        listOf(
+            CloudInputRule("prompt", "prompt", required = true),
+            CloudInputRule("aspect_ratio", "enum", required = false, defaultValue = "1:1",
+                options = listOf("1:1", "3:4", "4:3", "9:16", "16:9")),
+            CloudInputRule("sample_count", "integer", required = false, defaultValue = "1", min = 1.0, max = 4.0),
+        )
+    } else CloudModelParameters.geminiRules(model)
 
     private fun displayName(model: String): String = when {
         model == "gemini-3-pro-image" -> "Gemini 3 Pro Image (Nano Banana Pro)"
-        model.contains("flash-lite-image") -> "Gemini 3.1 Flash Lite Image"
-        model.contains("flash-image") -> "Gemini 3.1 Flash Image (Nano Banana 2)"
+        model == "gemini-3.1-flash-lite-image" -> "Gemini 3.1 Flash Lite Image"
+        model == "gemini-3.1-flash-image" -> "Gemini 3.1 Flash Image"
         else -> model
     }
 

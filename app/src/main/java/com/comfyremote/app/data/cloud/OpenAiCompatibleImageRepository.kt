@@ -28,28 +28,27 @@ class OpenAiCompatibleImageRepository(
 
     override suspend fun discoverModels(): List<String> {
         val account = account()
+        return discoverModelIds(settings, account) { discoverMetadata(account) }
+    }
+
+    internal suspend fun discoverMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
         if (account.token.isBlank()) throw ComfyException("Configure an API key first")
         val root = CloudHttp.getJson(
             "${account.baseUrl.trimEnd('/')}/models",
             settings.mergeHeaders(id, mapOf("Authorization" to "Bearer ${account.token}")),
         )
-        val ids = modelIdsFromResponse(root.optJSONArray("data"))
-        // The official OpenAI catalogue also lists text/audio models.
-        return if (id == PROVIDER) ids.filter(::looksLikeImageModel) else ids
+        val models = providerModelDirectory(root.optJSONArray("data"))
+        return if (id == PROVIDER) models.filter {
+            it.kind == "image" || (it.kind.isBlank() && looksLikeImageModel(it.id))
+        } else models
     }
 
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
         val account = account()
         if (account.token.isBlank()) return emptyList()
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-        return settings.enabledModels(id, models).map { model ->
-            CloudWorkflowSummary(
-                id = model,
-                name = displayName(model),
-                description = "${label} ${displayName(model)} image generation",
-                kind = "image",
-                priceType = "official_api",
-            )
+        return modelDirectory(settings, account, force) { discoverMetadata(account) }.map { model ->
+            model.summary("image", fallbackName = displayName(model.id),
+                fallbackDescription = "Generate images with ${label}. Available controls depend on the model.")
         }
     }
 
@@ -59,7 +58,7 @@ class OpenAiCompatibleImageRepository(
         kind = "image",
         description = "OpenAI Images API",
         rules = rulesFor(workflowId),
-    )
+    ).withMetadata(settings.modelMetadata(account(), workflowId))
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
         val account = account()
@@ -105,6 +104,7 @@ class OpenAiCompatibleImageRepository(
                 .put("prompt", body.optString("prompt"))
             body.opt("size")?.toString()?.takeIf { it.isNotBlank() }?.let { payload.put("size", it) }
             body.opt("quality")?.toString()?.takeIf { it.isNotBlank() }?.let { payload.put("quality", it) }
+            body.opt("style")?.toString()?.takeIf { it.isNotBlank() }?.let { payload.put("style", it) }
             body.opt("background")?.toString()?.takeIf { it.isNotBlank() }?.let { payload.put("background", it) }
             body.opt("output_format")?.toString()?.takeIf { it.isNotBlank() }?.let { payload.put("output_format", it) }
             body.optInt("n", 1).takeIf { it > 0 }?.let { payload.put("n", it) }
@@ -166,12 +166,13 @@ class OpenAiCompatibleImageRepository(
     private fun rulesFor(model: String): List<CloudInputRule> =
         CloudModelParameters.openAiRules(model)
 
-    private fun displayName(model: String): String = when {
-        model.startsWith("gpt-image-2.5-flare") -> "GPT Image 2.5 Flare"
-        model.startsWith("gpt-image-2.5-sunburst") -> "GPT Image 2.5 Sunburst"
-        model.startsWith("gpt-image-2") -> "GPT Image 2"
-        model.startsWith("gpt-image-1.5") -> "GPT Image 1.5"
-        model == "dall-e-3" -> "DALL·E 3"
+    private fun displayName(model: String): String = when (model) {
+        "gpt-image-2.5-flare" -> "GPT Image 2.5 Flare"
+        "gpt-image-2.5-sunburst" -> "GPT Image 2.5 Sunburst"
+        "gpt-image-2.5" -> "GPT Image 2.5"
+        "gpt-image-2" -> "GPT Image 2"
+        "gpt-image-1.5" -> "GPT Image 1.5"
+        "dall-e-3" -> "DALL·E 3"
         else -> model
     }
 

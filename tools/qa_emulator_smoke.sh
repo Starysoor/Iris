@@ -88,5 +88,10 @@ grep -Eq '^OK \(2 tests\)' "$EVIDENCE/gallery-save-e2e.txt" || {
   exit 1
 }
 
+echo "QA step 9: refresh cloud model catalogues from the UI dispatcher"
+adb shell am instrument -w -r \
+    -e class com.comfyremote.app.data.cloud.CloudCatalogueInstrumentedTest \
+    "$PKG.test/androidx.test.runner.AndroidJUnitRunner" | tee "$EVIDENCE/cloud-catalogue-e2e.txt"
+grep -Eq '^OK \(1 test\)' "$EVIDENCE/cloud-catalogue-e2e.txt"
 
-echo "PASS: emulator process lifecycle and media export checks"
+echo "PASS: emulator process lifecycle, media export and cloud catalogue checks"

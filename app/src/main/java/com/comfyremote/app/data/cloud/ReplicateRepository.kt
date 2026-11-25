@@ -1,6 +1,9 @@
 package com.comfyremote.app.data.cloud
 
 import com.comfyremote.app.ComfyException
+import kotlinx.coroutines.ensureActive
+import okhttp3.HttpUrl.Companion.toHttpUrl
+import kotlin.coroutines.coroutineContext
 import kotlin.coroutines.cancellation.CancellationException
 import org.json.JSONArray
 import org.json.JSONObject
@@ -31,24 +34,38 @@ class ReplicateRepository(
     /** Replicate exposes a public model catalogue; persist only what this account pulled. */
     override suspend fun discoverModels(): List<String> {
         val account = account()
-        if (account.token.isBlank()) throw ComfyException("Configure a Replicate token first")
-        val root = CloudHttp.getJson("${account.baseUrl.trimEnd('/')}/models", auth(account))
-        val results = root.optJSONArray("results") ?: return emptyList()
-        return (0 until results.length()).mapNotNull { index ->
-            val item = results.optJSONObject(index) ?: return@mapNotNull null
-            val owner = item.optString("owner").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            val name = item.optString("name").takeIf { it.isNotBlank() } ?: return@mapNotNull null
-            "$owner/$name"
-        }.filter(::looksLikeMediaModel)
+        return discoverModelIds(settings, account) { discoverMetadata(account) }
     }
 
-    private fun looksLikeMediaModel(model: String): Boolean {
-        val lower = model.lowercase()
-        return listOf(
-            "flux", "image", "video", "seedream", "wan-", "wan2", "kling",
-            "hunyuan", "minimax", "stable-diffusion", "sdxl", "veo", "runway",
-            "luma", "recraft", "ideogram", "imagen", "nano-banana",
-        ).any { it in lower }
+    private suspend fun discoverMetadata(account: CloudProviderAccount): List<CloudModelMetadata> {
+        if (account.token.isBlank()) throw ComfyException("Configure a Replicate token first")
+        val endpoint = "${account.baseUrl.trimEnd('/')}/models".toHttpUrl()
+        val headers = auth(account)
+        val seen = mutableSetOf<String>()
+        val models = mutableListOf<CloudModelMetadata>()
+        var page = endpoint
+        while (seen.add(page.toString())) {
+            coroutineContext.ensureActive()
+            val root = CloudHttp.getJson(page.toString(), headers)
+            val results = root.optJSONArray("results") ?: break
+            for (index in 0 until results.length()) {
+                val item = results.optJSONObject(index) ?: continue
+                val owner = item.optString("owner").takeIf(String::isNotBlank) ?: continue
+                val name = item.optString("name").takeIf(String::isNotBlank) ?: continue
+                val model = providerModelMetadata("$owner/$name", item)
+                if (model.kind in setOf("image", "video", "audio") ||
+                    (model.kind.isBlank() && CloudModelParameters.looksLikeMediaModel(model.id))) {
+                    models += model
+                }
+            }
+            val next = root.optString("next").takeUnless { it.isBlank() || it == "null" } ?: break
+            val url = endpoint.resolve(next) ?: break
+            if (url.scheme != endpoint.scheme || url.host != endpoint.host || url.port != endpoint.port) {
+                throw ComfyException("Replicate catalogue pagination returned another endpoint")
+            }
+            page = url
+        }
+        return models
     }
 
     /** Replicate has no account-specific catalogue; validate the token against the account API. */
@@ -74,42 +91,42 @@ class ReplicateRepository(
     override suspend fun catalog(force: Boolean): List<CloudWorkflowSummary> {
         val account = account()
         if (account.token.isBlank()) return emptyList()
-        val models = pulledModels(settings, id, account.baseUrl, account.token) { discoverModels() }
-        return settings.enabledModels(id, models).map { model ->
-            CloudWorkflowSummary(
-                id = model,
-                name = model.substringAfterLast('/'),
-                description = "Replicate $model",
-                kind = kindOf(model),
-                priceType = "official_api",
-            )
+        return modelDirectory(settings, account, force) { discoverMetadata(account) }.map { model ->
+            model.summary(kindOf(model), fallbackName = model.id.substringAfterLast('/'))
         }
     }
 
     override suspend fun detail(workflowId: String): CloudWorkflowSpec {
         val account = account()
+        val cached = settings.modelMetadata(account, workflowId)
         val fallback = CloudWorkflowSpec(
             id = workflowId,
             name = workflowId.substringAfterLast('/'),
-            kind = kindOf(workflowId),
+            kind = kindOf(cached),
             description = "Replicate model",
             rules = fallbackRules(),
-        )
+        ).withMetadata(cached)
         if (account.token.isBlank()) return fallback
-        return runCatching {
+        return try {
             val model = CloudHttp.getJson(
                 "${account.baseUrl.trimEnd('/')}/models/$workflowId",
                 auth(account),
             )
+            val metadata = providerModelMetadata(workflowId, model)
+            val detail = fallback.withMetadata(metadata).copy(kind = kindOf(metadata))
             val inputSchema = model.optJSONObject("latest_version")
                 ?.optJSONObject("openapi_schema")
                 ?.optJSONObject("components")
                 ?.optJSONObject("schemas")
                 ?.optJSONObject("Input")
-                ?: return@runCatching fallback
+                ?: return detail
             val rules = ReplicateSchema.rules(inputSchema)
-            if (rules.isEmpty()) fallback else fallback.copy(rules = rules)
-        }.getOrDefault(fallback)
+            if (rules.isEmpty()) detail else detail.copy(rules = rules)
+        } catch (cancelled: CancellationException) {
+            throw cancelled
+        } catch (_: Exception) {
+            fallback.copy(unavailableReason = "Could not load Replicate's input schema for $workflowId.")
+        }
     }
 
     override suspend fun submit(workflowId: String, body: JSONObject): String {
@@ -123,7 +140,7 @@ class ReplicateRepository(
         )
         val taskId = response.optString("id").takeIf { it.isNotBlank() }
             ?: throw ComfyException(CloudHttp.errorMessage(response, "Replicate returned no prediction id"))
-        val snapshot = Pending(workflowId, kindOf(workflowId), account.baseUrl.trimEnd('/'))
+        val snapshot = Pending(workflowId, kindOf(settings.modelMetadata(account, workflowId)), account.baseUrl.trimEnd('/'))
         try {
             taskStore.savePending(
                 id,
@@ -162,7 +179,7 @@ class ReplicateRepository(
         val result = when (status) {
             "succeeded" -> {
                 val kind = snapshot?.kind?.takeIf { it.isNotBlank() }
-                    ?: kindOf(response.optString("model"))
+                    ?: kindOf(settings.modelMetadata(account, response.optString("model")))
                 val results = outputs(response.opt("output"), kind)
                 CloudTaskResult(taskId, "SUCCESS", results, "", 0)
             }
@@ -228,14 +245,8 @@ class ReplicateRepository(
     private fun auth(account: CloudProviderAccount): Map<String, String> =
         settings.mergeHeaders(id, mapOf("Authorization" to "Bearer ${account.token}"))
 
-    private fun kindOf(model: String): String {
-        val lower = model.lowercase()
-        return if (listOf("video", "hunyuan", "wan-", "kling", "veo", "minimax/video").any { it in lower }) {
-            "video"
-        } else {
-            "image"
-        }
-    }
+    private fun kindOf(model: CloudModelMetadata): String =
+        model.kind.ifBlank { CloudModelParameters.mediaKindHint(model.id) }.ifBlank { "image" }
 
     private fun extensionOf(url: String): String =
         url.substringBefore('?').substringAfterLast('.', "").lowercase().takeIf { it.length in 2..5 }.orEmpty()

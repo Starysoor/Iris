@@ -37,7 +37,7 @@ object CloudModelParameters {
      * practical cap; vendor hard limits are higher (GPT Image 16, Gemini Pro 14).
      */
     fun referenceImageLimit(model: String): Int {
-        val lower = model.lowercase()
+        val lower = model.substringAfterLast('/').lowercase()
         if (!supportsReferenceImage(model)) return 0
         if (lower.contains("qwen-image-edit-2509")) return 3
         if (lower.startsWith("gpt-image") || lower.startsWith("chatgpt-image")) return 4
@@ -59,37 +59,35 @@ object CloudModelParameters {
             .toList()
 
     fun kindOf(model: String): String {
-        val lower = model.lowercase()
-        return if (listOf(
-                "t2v", "i2v", "video", "wan2", "wan3", "seedance", "kling",
-                "hailuo", "minimax-h3",
-            ).any { it in lower }
-        ) "video" else "image"
+        return mediaKindHint(model).ifBlank { "image" }
     }
 
-    /**
-     * `/models` endpoints also return text/LLM entries. Keep only entries that
-     * can actually be used by the image/video generation adapters.
-     */
-    fun looksLikeMediaModel(model: String): Boolean {
-        val lower = model.lowercase()
-        return listOf(
-            "image", "gpt-image", "dall-e", "seedream", "seededit", "flux", "banana",
-            "kolors", "stable", "sdxl", "sd3", "z-image", "hunyuanimage",
-            "hunyuan-image", "hunyuanvideo", "hunyuan-video", "video",
-            "wan2", "wan3", "wan-", "seedance", "kling", "hailuo",
-            "minimax-h3", "minimax_h3", "veo", "runway", "luma",
-            "recraft", "ideogram", "imagen",
-        ).any { it in lower }
+    /** Fallback for ID-only catalogues. A provider-declared modality takes precedence. */
+    internal fun mediaKindHint(model: String): String {
+        val leaf = model.substringAfterLast('/').lowercase().replace('_', '-')
+        return when {
+            listOf("tts", "speech", "stable-audio", "voice-clone", "musicgen", "text-to-audio")
+                .any { it in leaf } -> "audio"
+            "image-to-video" in leaf || listOf("t2v", "i2v", "v2v", "flf2v", "video", "wan2", "wan3", "wan-", "seedance",
+                "kling", "hailuo", "minimax-h3", "veo", "runway", "sora", "luma")
+                .any { it in leaf } && "image" !in leaf -> "video"
+            listOf("image", "dall-e", "seedream", "seededit", "flux", "banana", "kolors",
+                "stable-diffusion", "sdxl", "sd3", "recraft", "ideogram", "imagen")
+                .any { it in leaf } -> "image"
+            else -> ""
+        }
     }
+
+    fun looksLikeMediaModel(model: String): Boolean = mediaKindHint(model).isNotEmpty()
 
     /**
      * OpenAI-compatible Images parameters. GPT Image models accept an input
      * image through `/images/edits`; DALL·E 3 explicitly does not.
      */
     fun openAiRules(model: String): List<CloudInputRule> {
-        val gptImage = model.startsWith("gpt-image") || model.startsWith("chatgpt-image")
-        val dallE = model.startsWith("dall-e")
+        val leaf = model.substringAfterLast('/').lowercase()
+        val gptImage = leaf.startsWith("gpt-image") || leaf.startsWith("chatgpt-image")
+        val dallE = leaf.startsWith("dall-e")
         val rules = mutableListOf(CloudInputRule("prompt", "prompt", required = true))
         repeat(referenceImageLimit(model)) { index ->
             rules += CloudInputRule(
@@ -198,8 +196,7 @@ object CloudModelParameters {
     }
 
     /** SiliconFlow image/video parameters, including edit and I2V inputs. */
-    fun siliconFlowRules(model: String): List<CloudInputRule> {
-        val kind = kindOf(model)
+    fun siliconFlowRules(model: String, kind: String = kindOf(model)): List<CloudInputRule> {
         val lower = model.lowercase()
         val editModel = supportsReferenceImage(model)
         val rules = mutableListOf(CloudInputRule("prompt", "prompt", required = kind != "image" || !editModel))

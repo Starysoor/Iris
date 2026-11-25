@@ -12,6 +12,7 @@ enum class WorkflowCapability(val label: String) {
     VIDEO("VIDEO"),
     TXT2VIDEO("TXT2VIDEO"),
     IMG2VIDEO("IMG2VIDEO"),
+    VIDEO_REFERENCE("VIDEO REF"),
     CONTROL("CONTROL"),
     MULTI_REFERENCE("MULTI-REF"),
     LORA("LORA"),
@@ -32,11 +33,17 @@ data class WorkflowInsight(
 }
 
 object WorkflowInsights {
+    fun isModelSelection(field: PromptField): Boolean =
+        field.kind == FieldKind.PARAM && field.ptype == "combo" &&
+            listOf("ckpt", "checkpoint", "model", "unet", "vae", "lora", "control_net", "controlnet", "clip_name")
+                .any { it in field.input.lowercase() }
+
     fun analyze(
         prompt: JSONObject,
         fields: List<PromptField>,
         values: Map<String, String>,
         converterWarnings: List<String>,
+        blockingProblems: List<String> = emptyList(),
     ): WorkflowInsight {
         val types = buildList {
             prompt.keys().forEach { id ->
@@ -64,7 +71,7 @@ object WorkflowInsights {
         if (imageFields.isNotEmpty()) capabilities += WorkflowCapability.IMG2IMG
         else if (WorkflowCapability.VIDEO !in capabilities) capabilities += WorkflowCapability.TXT2IMG
 
-        val issues = mutableListOf<WorkflowCompatibilityIssue>()
+        val issues = blockingProblems.map { WorkflowCompatibilityIssue(it, true) }.toMutableList()
         converterWarnings.forEach { warning ->
             val blocking = warning.contains("未知节点") || warning.contains("无法完整转换") || warning.contains("Subgraph", true)
             issues += WorkflowCompatibilityIssue(warning, blocking)
@@ -73,10 +80,7 @@ object WorkflowInsights {
         fields.filter { it.kind == FieldKind.PARAM && it.ptype == "combo" && it.options.isNotEmpty() }
             .forEach { field ->
                 val current = values[field.key] ?: field.value
-                val input = field.input.lowercase()
-                val modelLike = listOf("ckpt", "checkpoint", "model", "unet", "vae", "lora", "control_net", "controlnet")
-                    .any(input::contains)
-                if (modelLike && current.isNotBlank() && current !in field.options) {
+                if (isModelSelection(field) && current.isNotBlank() && current !in field.options) {
                     issues += WorkflowCompatibilityIssue(
                         "${field.label}: '$current' is not available on this server",
                         blocking = true,
@@ -84,13 +88,13 @@ object WorkflowInsights {
                 }
             }
 
-        imageFields.forEach { field ->
+        fields.filter { it.kind.isMedia }.forEach { field ->
             val current = values[field.key] ?: field.value
             if (current.isBlank()) {
                 // Required image inputs must be visible before submit; optional reference
                 // slots stay a warning because ComfyUI is still the authority for them.
                 issues += WorkflowCompatibilityIssue(
-                    "${field.label}: reference image is empty",
+                    "${field.label}: reference media is empty",
                     blocking = field.required,
                 )
             }

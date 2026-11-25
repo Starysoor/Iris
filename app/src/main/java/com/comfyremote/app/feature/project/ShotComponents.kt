@@ -36,6 +36,7 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.comfyremote.app.R
 import com.comfyremote.app.data.project.ProjectShot
+import com.comfyremote.app.data.project.StudioWorkflowRecipes
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.data.reference.ProjectAsset
 import com.comfyremote.app.data.reference.ReferenceRole
@@ -54,8 +55,7 @@ internal fun shotWorkflowLabel(
     project: VideoProject,
     workflows: List<ProjectWorkflowOption>,
 ): String? {
-    val path = shot.workflowPath?.takeIf { it.isNotBlank() } ?: return null
-    if (path == project.workflowPath) return null
+    val path = StudioWorkflowRecipes.workflowPath(project, "video", shot) ?: return null
     return workflows.firstOrNull { it.path == path }?.let { "${it.providerLabel} · ${it.name}" } ?: path
 }
 

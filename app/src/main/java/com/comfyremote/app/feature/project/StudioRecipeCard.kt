@@ -29,7 +29,6 @@ import com.comfyremote.app.data.project.StudioStageMediaBindings
 import com.comfyremote.app.data.project.VideoProject
 import com.comfyremote.app.ui.Spacing
 import com.comfyremote.app.ui.components.IrisCard
-import com.comfyremote.app.ui.components.IrisTextField
 import com.comfyremote.app.ui.components.TextAction
 
 /**
@@ -67,14 +66,12 @@ internal fun StudioRecipeCard(
             style = MaterialTheme.typography.bodySmall,
             color = MaterialTheme.colorScheme.onSurfaceVariant,
         )
-        recipe.steps.forEachIndexed { index, step ->
+        recipe.steps.forEach { step ->
             val kind = step.providerKind
-            val path = if (kind == "video") {
-                project.stageWorkflowPaths[kind]?.takeIf(String::isNotBlank) ?: project.workflowPath
-            } else if (kind != null) project.stageWorkflowPaths[kind].orEmpty() else ""
+            val path = kind?.let { StudioWorkflowRecipes.workflowPath(project, it) }.orEmpty()
             val model = models.firstOrNull { it.kind == kind && it.path == path }
             Column(verticalArrangement = Arrangement.spacedBy(Spacing.xs)) {
-                Text("${index + 1}. " + stepLabel(step), style = MaterialTheme.typography.titleSmall)
+                Text(stepLabel(step), style = MaterialTheme.typography.titleSmall)
                 if (kind != null) {
                     Text(
                         model?.let { "${it.providerLabel} · ${it.name}" }
@@ -122,61 +119,14 @@ internal fun StudioRecipeCard(
     }
 
     inspectKind?.let { kind ->
-        // The contract displayed must match both this project and its current model.
-        // A late response from a previous selection cannot be presented as current.
-        val selectedPath = project.stageWorkflowPaths[kind]
-            ?.takeIf(String::isNotBlank)
-            ?: if (kind == "video") project.workflowPath else ""
-        val matched = inspection.projectId == project.id &&
-            inspection.kind == kind && inspection.workflowPath == selectedPath
-        AlertDialog(
-            onDismissRequest = { inspectKind = null },
-            title = { Text(stringResource(R.string.studio_contract_title)) },
-            text = {
-                Column(
-                    Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
-                    verticalArrangement = Arrangement.spacedBy(Spacing.sm),
-                ) {
-                    when {
-                        !matched || inspection.loading -> Text(
-                            stringResource(R.string.studio_contract_loading),
-                            style = MaterialTheme.typography.bodyMedium,
-                        )
-                        inspection.error != null -> {
-                            Text(
-                                stringResource(R.string.studio_contract_failed, inspection.error),
-                                color = MaterialTheme.colorScheme.error,
-                            )
-                            Text(stringResource(R.string.studio_contract_safe_hint),
-                                style = MaterialTheme.typography.bodySmall)
-                        }
-                        inspection.report != null ->
-                            StudioContractDetails(
-                                report = inspection.report,
-                                project = project,
-                                workflowPath = selectedPath,
-                                onBindField = { field, assetId ->
-                                    onBindMedia(kind, selectedPath, field, assetId)
-                                },
-                            )
-                        else -> Text(stringResource(R.string.studio_contract_loading))
-                    }
-                }
-            },
-            confirmButton = {
-                if (matched && inspection.report?.support == StudioStagePreflight.Support.CONFIGURABLE) {
-                    TextButton(onClick = {
-                        inspectKind = null
-                        onRunStage(kind)
-                    }) { Text(stringResource(R.string.studio_recipe_run_stage)) }
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { inspectKind = null }) {
-                    Text(stringResource(R.string.action_close))
-                }
-            },
-        )
+        StudioWorkflowRecipes.workflowPath(project, kind)?.let { path ->
+            StudioContractDialog(
+                project = project, kind = kind, workflowPath = path, inspection = inspection,
+                onBindField = { field, assetId -> onBindMedia(kind, path, field, assetId) },
+                onDismiss = { inspectKind = null },
+                onRun = { inspectKind = null; onRunStage(kind) },
+            )
+        }
     }
 
     if (recipePicker) {
@@ -203,38 +153,19 @@ internal fun StudioRecipeCard(
     }
 
     modelKind?.let { kind ->
-        val suitable = models.filter { it.kind == kind }
-        var query by remember(kind) { mutableStateOf("") }
         AlertDialog(
             onDismissRequest = { modelKind = null },
             title = { Text(stringResource(R.string.studio_recipe_select_model)) },
             text = {
-                Column(verticalArrangement = Arrangement.spacedBy(Spacing.sm)) {
-                    IrisTextField(
-                        value = query,
-                        onValueChange = { query = it },
-                        label = stringResource(R.string.studio_workflow_search),
-                        singleLine = true,
-                        modifier = Modifier.fillMaxWidth(),
-                    )
-                    Column(Modifier.heightIn(max = 330.dp)
-                        .verticalScroll(rememberScrollState())) {
-                        val filtered = suitable.filter {
-                            query.isBlank() || it.name.contains(query, true) ||
-                                it.providerLabel.contains(query, true)
-                        }
-                        if (filtered.isEmpty()) {
-                            Text(stringResource(R.string.studio_recipe_no_models),
-                                color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        filtered.forEach { option ->
-                            TextButton(onClick = {
-                                onChooseModel(kind, option.path)
-                                modelKind = null
-                            }) { Text("${option.providerLabel} · ${option.name}") }
-                        }
-                    }
-                }
+                SearchableStudioWorkflows(
+                    workflows = models.filter { it.kind == kind },
+                    selectedPath = StudioWorkflowRecipes.workflowPath(project, kind),
+                    onSelect = { path ->
+                        onChooseModel(kind, path)
+                        modelKind = null
+                    },
+                    onDefault = null,
+                )
             },
             confirmButton = {},
             dismissButton = { TextButton(onClick = { modelKind = null }) {
@@ -263,19 +194,72 @@ private fun stepLabel(step: StudioWorkflowRecipes.Step): String = stringResource
 
 /** Displays only facts from the provider's detailed schema, never name guesses. */
 @Composable
+internal fun StudioContractDialog(
+    project: VideoProject,
+    kind: String,
+    workflowPath: String,
+    inspection: ProjectViewModel.StageInspection,
+    shotId: String? = null,
+    onBindField: (String, String?) -> Unit,
+    onDismiss: () -> Unit,
+    onRun: () -> Unit,
+) {
+    val matched = inspection.projectId == project.id && inspection.shotId == shotId &&
+        inspection.kind == kind && inspection.workflowPath == workflowPath
+    AlertDialog(
+        onDismissRequest = onDismiss,
+        title = { Text(stringResource(R.string.studio_contract_title)) },
+        text = {
+            Column(
+                Modifier.heightIn(max = 430.dp).verticalScroll(rememberScrollState()),
+                verticalArrangement = Arrangement.spacedBy(Spacing.sm),
+            ) {
+                when {
+                    !matched || inspection.loading -> Text(stringResource(R.string.studio_contract_loading))
+                    inspection.error != null -> Text(
+                        stringResource(R.string.studio_contract_failed, inspection.error),
+                        color = MaterialTheme.colorScheme.error,
+                    )
+                    inspection.report != null -> StudioContractDetails(
+                        inspection.report, project, workflowPath, shotId, onBindField,
+                    )
+                }
+            }
+        },
+        confirmButton = {
+            if (matched && inspection.report?.support == StudioStagePreflight.Support.CONFIGURABLE) {
+                TextButton(onClick = onRun) { Text(stringResource(R.string.studio_recipe_run_stage)) }
+            }
+        },
+        dismissButton = { TextButton(onClick = onDismiss) { Text(stringResource(R.string.action_close)) } },
+    )
+}
+
+@Composable
 private fun StudioContractDetails(
     report: StudioStagePreflight.Report,
     project: VideoProject,
     workflowPath: String,
+    shotId: String?,
     onBindField: (String, String?) -> Unit,
 ) {
+    val bindings = StudioStageMediaBindings.effective(project.stageMediaBindings, workflowPath, shotId)
     var expandedField by remember(workflowPath) { mutableStateOf<String?>(null) }
     Text(report.modelName, style = MaterialTheme.typography.titleSmall)
+    if (report.description.isNotBlank()) {
+        Text(report.description, style = MaterialTheme.typography.bodySmall)
+    }
     Text(
         stringResource(R.string.studio_contract_summary, report.imageInputs,
             report.requiredImageInputs, report.audioInputs, report.requiredAudioInputs),
         style = MaterialTheme.typography.bodySmall,
     )
+    if (report.videoInputs > 0) {
+        Text(
+            stringResource(R.string.studio_contract_video, report.videoInputs, report.requiredVideoInputs),
+            style = MaterialTheme.typography.bodySmall,
+        )
+    }
     Text(
         report.providerPrice ?: stringResource(R.string.studio_contract_unknown_price),
         style = MaterialTheme.typography.bodySmall,
@@ -321,11 +305,9 @@ private fun StudioContractDetails(
             if (input.role != com.comfyremote.app.data.reference.ReferenceRole.AUTO) {
                 Text(input.role.name, style = MaterialTheme.typography.bodySmall)
             }
-            if (input.type == "image" || input.type == "audio") {
+            run {
                 val matching = project.assets.filter { StudioStageMediaBindings.accepts(input, it) }
-                val boundId = project.stageMediaBindings.firstOrNull {
-                    it.workflowPath == workflowPath && it.fieldName == input.field
-                }?.assetId
+                val boundId = bindings.firstOrNull { it.fieldName == input.field }?.assetId
                 val current = project.assets.firstOrNull { it.id == boundId }
                 Box {
                     TextButton(onClick = { expandedField = input.field }) {
@@ -341,7 +323,8 @@ private fun StudioContractDetails(
                         onDismissRequest = { expandedField = null },
                     ) {
                         DropdownMenuItem(
-                            text = { Text(stringResource(R.string.studio_binding_clear)) },
+                            text = { Text(stringResource(if (shotId == null) R.string.studio_binding_clear
+                                else R.string.studio_binding_project_default)) },
                             onClick = {
                                 expandedField = null
                                 onBindField(input.field, null)

@@ -18,6 +18,98 @@ class ProjectStoreTest {
     private fun store() = ProjectStore(File(temp.root, "projects.json"))
 
     @Test
+    fun reopeningAShotRestoresTheParametersForTheChosenModelAndStage() {
+        val store = store()
+        val project = requireNotNull(store.create("Film", "model-a"))
+        val one = requireNotNull(store.addShot(project.id, "Initial prompt"))
+        val two = requireNotNull(store.addShot(project.id, "Other shot"))
+        val first = StudioStageDraft("video", "autodl:model-a", mapOf("prompt" to "My edited prompt", "seed" to "13"), false)
+        val second = StudioStageDraft("video", "autodl:model-b", mapOf("duration" to "7"))
+        val image = StudioStageDraft("image", "comfy:still", mapOf("prompt" to "Still"))
+        assertTrue(store.saveShotDraft(project.id, one.id, first, "autodl", "model-a"))
+        assertNull(requireNotNull(store.project(project.id)).shots.first().workflowPath)
+        assertTrue(store.saveShotDraft(project.id, one.id, second, "autodl", "model-b"))
+        assertTrue(store.saveShotDraft(project.id, one.id, image, "comfyui", "still"))
+
+        val reopened = requireNotNull(store().project(project.id))
+        val edited = reopened.shots.first { it.id == one.id }
+        assertEquals(second.workflowPath, StudioWorkflowRecipes.workflowPath(reopened, "video", edited))
+        assertEquals(image.workflowPath, StudioWorkflowRecipes.workflowPath(reopened, "image", edited))
+        assertEquals(first, edited.stageDraft("video", first.workflowPath))
+        val handoff = StudioWorkflowRecipes.shotTransfer(reopened, edited, "video", first.workflowPath, "Saved", emptyMap())
+        assertEquals(first.values, handoff.values)
+        assertEquals(one.id, handoff.storyboardShotId)
+        assertFalse(handoff.randomSeed)
+        assertTrue(handoff.restoreStudioPrompt)
+        assertTrue(reopened.shots.first { it.id == two.id }.stageDrafts.isEmpty())
+    }
+
+    @Test
+    fun legacyVideoParametersFollowTheirOriginalModelWhenItIsReplaced() {
+        val store = store()
+        val project = requireNotNull(store.create("Film", "original"))
+        val inherited = requireNotNull(store.addShot(project.id, "Inherited"))
+        val overridden = requireNotNull(store.addShot(project.id, "Overridden"))
+        assertTrue(store.setShotVideoWorkflow(project.id, overridden.id, "autodl:other", "autodl", "other"))
+        assertTrue(store.updateShot(project.id, inherited.id) { it.copy(values = mapOf("duration" to "5")) })
+        assertTrue(store.updateShot(project.id, overridden.id) { it.copy(values = mapOf("seed" to "22")) })
+
+        assertTrue(store.setStageWorkflow(project.id, "video", "autodl:replacement"))
+        val draft = StudioStageDraft("video", "autodl:replacement", mapOf("duration" to "8"))
+        assertTrue(store.saveShotDraft(project.id, overridden.id, draft, "autodl", "replacement"))
+
+        val saved = requireNotNull(store().project(project.id)).shots.associateBy { it.id }
+        assertEquals(mapOf("duration" to "5"), saved.getValue(inherited.id).stageDraft("video", "autodl:original")?.values)
+        assertEquals(mapOf("seed" to "22"), saved.getValue(overridden.id).stageDraft("video", "autodl:other")?.values)
+        assertTrue(saved.values.all { it.values.isEmpty() })
+        assertEquals(draft, saved.getValue(overridden.id).stageDraft("video", draft.workflowPath))
+    }
+
+    @Test
+    fun copiedAndReopenedShotsRetainOnlyTheirOwnFieldBindings() {
+        val store = store()
+        val project = requireNotNull(store.create("Film", "video"))
+        val one = requireNotNull(store.addShot(project.id, "One"))
+        val two = requireNotNull(store.addShot(project.id, "Two"))
+        val first = ProjectAsset(id = "first", path = "/media/first.jpg")
+        val second = ProjectAsset(id = "second", path = "/media/second.jpg")
+        assertTrue(store.addAsset(project.id, first))
+        assertTrue(store.addAsset(project.id, second))
+        val path = "autodl:video"
+        assertTrue(store.setStageMediaBinding(project.id, path, "start", first.id))
+        assertTrue(store.setStageMediaBinding(project.id, path, "start", second.id, one.id))
+        val clone = requireNotNull(store.duplicateShot(project.id, one.id))
+        val copy = requireNotNull(store.duplicateProject(project.id))
+        val saved = requireNotNull(store().project(project.id))
+        val choices = saved.stageMediaBindings
+        assertEquals(second.id, StudioStageMediaBindings.effective(choices, path, one.id).single().assetId)
+        assertEquals(first.id, StudioStageMediaBindings.effective(choices, path, two.id).single().assetId)
+        assertEquals(second.id, StudioStageMediaBindings.effective(choices, path, clone.id).single().assetId)
+        assertEquals(second.id, StudioStageMediaBindings.effective(copy.stageMediaBindings, path, copy.shots[0].id).single().assetId)
+        assertTrue(store.deleteShot(project.id, one.id))
+        assertFalse(requireNotNull(store.project(project.id)).stageMediaBindings.any { it.shotId == one.id })
+    }
+
+    @Test
+    fun attachingResultToTakeAndTimelinePreservesTheSelectedTakeAndCanReuseAnExistingCandidate() {
+        val store = store()
+        val project = requireNotNull(store.create("Film", "video"))
+        val shot = requireNotNull(store.addShot(project.id, "Shot"))
+        val original = ShotTake(status = "done", resultPath = "/media/selected.mp4")
+        assertTrue(store.attachExistingTake(project.id, shot.id, original))
+        val selected = requireNotNull(store.project(project.id)).shots.single().takes.single()
+        assertTrue(store.selectTake(project.id, shot.id, selected.id))
+        val next = ShotTake(status = "done", resultPath = "/media/next.mp4")
+        assertTrue(store.attachExistingTake(project.id, shot.id, next))
+        val clip = TimelineClip(sourcePath = "/media/next.mp4", sourceOutMs = 1_000)
+        assertTrue(store.attachExistingTake(project.id, shot.id, next, clip))
+        val saved = requireNotNull(store().project(project.id))
+        assertEquals(selected.id, saved.shots.single().selectedTakeId)
+        assertEquals(2, saved.shots.single().takes.size)
+        assertEquals(listOf(clip), saved.timeline?.videoTrack)
+    }
+
+    @Test
     fun corruptIndexIsShownAsRecoveryBlockerRatherThanAnEmptyProject() {
         val file = File(temp.root, "projects.json").apply { writeText("{corrupt-json") }
         val store = ProjectStore(file)

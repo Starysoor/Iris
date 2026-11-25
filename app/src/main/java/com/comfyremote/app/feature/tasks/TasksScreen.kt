@@ -68,8 +68,10 @@ fun TasksScreen(
     var confirmCancelQueued by remember { mutableStateOf(false) }
     var serverMenu by remember { mutableStateOf(false) }
     var projectMenu by remember { mutableStateOf(false) }
+    var shotMenu by remember { mutableStateOf(false) }
     var actionMenu by remember { mutableStateOf(false) }
     val snackbar = remember { SnackbarHostState() }
+    val scopedProject = projects.firstOrNull { it.id == ui.projectFilter }
 
     LaunchedEffect(message) {
         message?.let { snackbar.showSnackbar(it); viewModel.clearMessage() }
@@ -197,6 +199,31 @@ fun TasksScreen(
                     color = MaterialTheme.colorScheme.onSurfaceVariant,
                     maxLines = 1,
                 )
+            }
+
+            if (scopedProject != null && scopedProject.shots.isNotEmpty()) {
+                Box(Modifier.padding(horizontal = Spacing.gutter, vertical = Spacing.xs)) {
+                    val number = scopedProject.shots.indexOfFirst { it.id == ui.shotFilter } + 1
+                    IrisChip(
+                        label = if (number > 0) stringResource(R.string.studio_tasks_shot, number)
+                            else stringResource(R.string.studio_tasks_all_shots),
+                        selected = ui.shotFilter != null,
+                        onClick = { shotMenu = true },
+                    )
+                    DropdownMenu(expanded = shotMenu, onDismissRequest = { shotMenu = false }) {
+                        DropdownMenuItem(
+                            text = { Text(stringResource(R.string.studio_tasks_all_shots)) },
+                            onClick = { viewModel.setShotFilter(null); shotMenu = false },
+                        )
+                        scopedProject.shots.forEachIndexed { index, shot ->
+                            DropdownMenuItem(
+                                text = { Text(stringResource(R.string.studio_tasks_shot, index + 1) +
+                                    " · " + shot.prompt.take(60)) },
+                                onClick = { viewModel.setShotFilter(shot.id); shotMenu = false },
+                            )
+                        }
+                    }
+                }
             }
 
             if (tasks.isEmpty()) {

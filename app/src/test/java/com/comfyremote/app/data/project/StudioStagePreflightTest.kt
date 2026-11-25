@@ -83,7 +83,7 @@ class StudioStagePreflightTest {
     }
 
     @Test
-    fun requiredVideoUploadIsBlockedBecauseCreateCannotEditVideoFields() {
+    fun requiredVideoIsConfigurableAndShowsMissingAsset() {
         val report = StudioStagePreflight.inspect(
             workflow(rules = listOf(
                 CloudInputRule("source_video", "video", required = true),
@@ -92,8 +92,9 @@ class StudioStagePreflightTest {
             "video",
             emptyList(),
         )
-        assertEquals(StudioStagePreflight.Support.REQUIRES_UNSUPPORTED_INPUT, report.support)
-        assertEquals(listOf("source_video"), report.unsupportedRequired)
+        assertEquals(StudioStagePreflight.Support.CONFIGURABLE, report.support)
+        assertEquals(1, report.requiredVideoInputs)
+        assertEquals(listOf("source_video"), report.potentialMissingMediaSlots)
     }
 
     @Test

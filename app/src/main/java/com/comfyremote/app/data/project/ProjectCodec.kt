@@ -57,7 +57,8 @@ object ProjectCodec {
                 put(JSONObject()
                     .put("workflowPath", binding.workflowPath)
                     .put("fieldName", binding.fieldName)
-                    .put("assetId", binding.assetId))
+                    .put("assetId", binding.assetId)
+                    .put("shotId", binding.shotId ?: JSONObject.NULL))
             }
         })
         .put("chainFrames", project.chainFrames)
@@ -112,7 +113,7 @@ object ProjectCodec {
                         val field = row.optString("fieldName")
                         val asset = row.optString("assetId")
                         if (path.isNotBlank() && field.isNotBlank() && asset.isNotBlank()) {
-                            add(StudioStageMediaBinding(path, field, asset))
+                            add(StudioStageMediaBinding(path, field, asset, nullableString(row, "shotId")))
                         }
                     }
                 }
@@ -143,6 +144,13 @@ object ProjectCodec {
         .put("workflowPath", shot.workflowPath ?: JSONObject.NULL)
         .put("providerId", shot.providerId ?: JSONObject.NULL)
         .put("workflowId", shot.workflowId ?: JSONObject.NULL)
+        .put("stageWorkflowPaths", JSONObject(shot.stageWorkflowPaths))
+        .put("stageDrafts", JSONArray().apply {
+            shot.stageDrafts.forEach { draft ->
+                put(JSONObject().put("kind", draft.kind).put("workflowPath", draft.workflowPath)
+                    .put("values", JSONObject(draft.values)).put("randomSeed", draft.randomSeed))
+            }
+        })
         .put("values", JSONObject(shot.values))
         .put("lastFramePath", shot.lastFramePath ?: JSONObject.NULL)
         .put("tailFrameStored", shot.tailFrameStored)
@@ -176,6 +184,19 @@ object ProjectCodec {
             workflowPath = nullableString(o, "workflowPath"),
             providerId = nullableString(o, "providerId"),
             workflowId = nullableString(o, "workflowId"),
+            stageWorkflowPaths = stringMap(o.optJSONObject("stageWorkflowPaths")).filterKeys(StudioWorkflowRecipes::isModelKind),
+            stageDrafts = buildList {
+                val array = o.optJSONArray("stageDrafts") ?: return@buildList
+                for (index in 0 until array.length()) {
+                    val item = array.optJSONObject(index) ?: continue
+                    val kind = item.optString("kind")
+                    val path = nullableString(item, "workflowPath") ?: continue
+                    if (StudioWorkflowRecipes.isModelKind(kind)) {
+                        add(StudioStageDraft(kind, path, stringMap(item.optJSONObject("values")),
+                            item.optBoolean("randomSeed", true)))
+                    }
+                }
+            }.distinctBy { it.kind to it.workflowPath },
             values = stringMap(o.optJSONObject("values")),
             lastFramePath = nullableString(o, "lastFramePath"),
             tailFrameStored = o.optBoolean("tailFrameStored", false),

@@ -92,8 +92,8 @@
     <string name="studio_history_import_failed">无法关联媒体：%1$s</string>
     <string name="studio_workflow_search">搜索视频模型</string>
     <string name="studio_workflow_provider_all">全部服务</string>
-    <string name="studio_workflow_none">没有匹配的视频工作流</string>
-    <string name="studio_workflow_notice">仅显示已配置的视频生成模型。图片、音频可先在创作页生成，再关联至项目。</string>
+    <string name="studio_workflow_none">没有匹配的工作流或模型</string>
+    <string name="studio_workflow_notice">显示输出类型与当前阶段匹配的工作流和模型。</string>
     <string name="studio_ai_more_context">AI 将参考镜头状态、角色/场景、目标时长和 Take；请逐项核对建议后再应用。</string>
     <!-- AI director editable plan (#101) -->
     <string name="studio_ai_edit_plan">编辑镜头</string>
@@ -114,7 +114,15 @@
     <string name="studio_recipe_run_stage">进入生成</string>
     <string name="studio_recipe_open_step">打开工作区</string>
     <string name="studio_recipe_browse_create">浏览所有工作流（含本地）</string>
-    <string name="studio_recipe_no_models">未配置匹配的模型。可到创作页使用本地工作流。</string>
+    <string name="studio_contract_provider_unavailable">请在云端服务中确认已启用并配置 %1$s。</string>
+    <string name="studio_workspace_overview">项目概览</string>
+    <string name="studio_workspace_keyframe">关键帧</string>
+    <string name="studio_workspace_audio">配音与音效</string>
+    <string name="studio_workspace_pick_model">选择阶段模型</string>
+    <string name="studio_workspace_follow_project">使用项目默认模型</string>
+    <string name="studio_workspace_add_timeline">加入时间线</string>
+    <string name="studio_workspace_use_first">用作首帧</string>
+    <string name="studio_workspace_use_last">用作尾帧</string>
     <string name="studio_recipe_step_assets">准备角色和场景参考</string>
     <string name="studio_recipe_step_image">生成关键帧图片</string>
     <string name="studio_recipe_step_shots">规划和分配镜头</string>
@@ -136,6 +144,9 @@
     <string name="studio_contract_failed">无法检查模型输入契约：%1$s</string>
     <string name="studio_contract_safe_hint">这是只读预检。项目素材仅为候选，不会自动映射或上传。提交前必须在创作页核对必填参数及实际费用。</string>
     <string name="studio_contract_summary">图像输入位：%1$d（必填 %2$d）；音频输入位：%3$d（必填 %4$d）。</string>
+    <string name="studio_contract_video">视频输入位：%1$d（必填 %2$d）。</string>
+    <string name="studio_local_server_required">请连接 %1$s 以使用此 ComfyUI 工作流。</string>
+    <string name="studio_binding_missing_role">此工作流没有 %1$s 输入位，请检查镜头参考或选择其他工作流。</string>
     <string name="studio_contract_unknown_price">费用：服务商未提供可核实的计价信息</string>
     <string name="studio_contract_configurable">当前字段可在创作页配置，但不代表素材已绑定。</string>
     <string name="studio_contract_unknown">服务商未返回有效输入规则，暂时无法验证能力。</string>
