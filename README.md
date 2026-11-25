@@ -13,14 +13,14 @@
 [![Android](https://img.shields.io/badge/Android-10%2B-82b5a2?logo=android&logoColor=white)](#快速开始--quick-start)
 [![License](https://img.shields.io/github/license/Starysoor/Iris?color=a9a0d5)](LICENSE)
 
-**[⬇ 获取正式版 APK](https://github.com/Starysoor/Iris/releases/latest)** · **[🧪 beta.5 真机测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.5)** · **[查看新界面](#真实界面--live-screens)** · **[Studio 开发计划](https://github.com/Starysoor/Iris/issues/57)** · **[使用指南](#文档导航--documentation)**
+**[⬇ 获取正式版 APK](https://github.com/Starysoor/Iris/releases/latest)** · **[🧪 beta.6 真机测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.6)** · **[查看新界面](#真实界面--live-screens)** · **[Studio 开发计划](https://github.com/Starysoor/Iris/issues/57)** · **[使用指南](#文档导航--documentation)**
 
 [简体中文](#中文介绍) · [English](#english-overview)
 
 </div>
 
 > [!IMPORTANT]
-> GitHub Releases 的稳定版为 **v2.3.2**。签名测试版 **v2.4.0-beta.5**（`versionCode 33`）修复了本地 ComfyUI 多 LoRA 和云模型目录。Studio 支持跨页联动、项目 ZIP 交换、时间线波形、独立音轨混音及后台导出。完整 120 秒成片的真机测试与跨厂商自动执行仍在验收。下方截图使用 Android 模拟器的演示数据。[测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.5) · [真机验收 #80](https://github.com/Starysoor/Iris/issues/80) · [跨厂商流程 #101](https://github.com/Starysoor/Iris/issues/101)
+> GitHub Releases 的稳定版为 **v2.3.2**。签名测试版 **v2.4.0-beta.6**（`versionCode 34`）支持 ComfyUI 内置多 LoRA 节点，可在手机端增删 LoRA 行。Studio 支持跨页联动、项目 ZIP 交换、时间线波形、独立音轨混音及后台导出。完整 120 秒成片的真机测试与跨厂商自动执行仍在验收。下方截图使用 Android 模拟器的演示数据。[测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.6) · [真机验收 #80](https://github.com/Starysoor/Iris/issues/80) · [跨厂商流程 #101](https://github.com/Starysoor/Iris/issues/101)
 
 ## 真实界面 · Live screens
 
@@ -81,11 +81,11 @@ flowchart LR
   H[预算和任务状态] -.-> D
 ```
 
-`main` 已包含 Studio 素材、项目和任务联动及音轨混合导出，并通过自动化回归。签名 beta.5 可供真机试用。完整 120 秒成片、更多真机机型和跨厂商自动编排仍在验收。[测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.5) · [#80](https://github.com/Starysoor/Iris/issues/80) · [#101](https://github.com/Starysoor/Iris/issues/101)
+`main` 已包含 Studio 素材、项目和任务联动及音轨混合导出，并通过自动化回归。签名 beta.6 可供真机试用。完整 120 秒成片、更多真机机型和跨厂商自动编排仍在验收。[测试版](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.6) · [#80](https://github.com/Starysoor/Iris/issues/80) · [#101](https://github.com/Starysoor/Iris/issues/101)
 
 ## 快速开始 · Quick start
 
-1. 下载稳定版或 beta.5 测试版。测试版安装前请备份数据。应用包名为 `com.comfyremote.app`。[稳定版](https://github.com/Starysoor/Iris/releases/latest) · [beta.5 预发布页](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.5)
+1. 下载稳定版或 beta.6 测试版。测试版安装前请备份数据。应用包名为 `com.comfyremote.app`。[稳定版](https://github.com/Starysoor/Iris/releases/latest) · [beta.6 预发布页](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.6)
 2. **云端模式：** 在「设置 → 云服务」配置各 Provider 凭据；**本地模式：** 启动监听 `0.0.0.0:8188` 的 ComfyUI，使用局域网地址或已授权的 Tailscale 地址连接。
 3. 选择模型/工作流并编辑提示词与参考图，确认参数和费用提示，提交后在任务和结果页追踪输出。
 
@@ -133,7 +133,7 @@ Windows PowerShell 改用 `.\gradlew.bat`。发布由版本标签触发 GitHub A
 
 **Core capabilities:** multi-server ComfyUI; configurable cloud and OpenAI-compatible providers; image/video/audio workflows; first/last-frame and multi-image inputs; AI prompt skills; task progress and recovery; result playback and reuse. The project-driven **Iris Studio** is under active development.
 
-**v2.3.2** is the stable release. The signed **v2.4.0-beta.5** test build fixes local multi-LoRA workflows and cloud model catalogues. Automatic cross-provider orchestration and the full 120-second film on a physical device remain under validation. The screenshots above show demo data in the Android emulator. [Test release](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.5) · [Device testing #80](https://github.com/Starysoor/Iris/issues/80) · [Cross-provider workflow #101](https://github.com/Starysoor/Iris/issues/101)
+**v2.3.2** is the stable release. The signed **v2.4.0-beta.6** test build supports built-in ComfyUI LoRA stacks and lets you add or remove LoRA rows on your phone. Automatic cross-provider orchestration and the full 120-second film on a physical device remain under validation. The screenshots above show demo data in the Android emulator. [Test release](https://github.com/Starysoor/Iris/releases/tag/v2.4.0-beta.6) · [Device testing #80](https://github.com/Starysoor/Iris/issues/80) · [Cross-provider workflow #101](https://github.com/Starysoor/Iris/issues/101)
 
 Learn more: [Cloud services](docs/CloudProviders.md) · [AutoDL](docs/AutoDL.md) · [Studio model](docs/PROJECT_MODEL.md) · [Latest release](https://github.com/Starysoor/Iris/releases/latest).
 
