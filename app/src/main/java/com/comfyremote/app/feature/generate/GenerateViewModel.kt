@@ -15,6 +15,7 @@ import com.comfyremote.app.AppContainer
 import com.comfyremote.app.ComfyApi
 import com.comfyremote.app.ComfyException
 import com.comfyremote.app.ConvertedWorkflow
+import com.comfyremote.app.DynamicGroup
 import com.comfyremote.app.FieldKind
 import com.comfyremote.app.LabeledText
 import com.comfyremote.app.PromptField
@@ -114,6 +115,8 @@ data class GenerateUiState(
     /** Storyboard shots bind one task per shot, so batch controls are locked to 1. */
     val storyboardShot: Boolean = false,
     val message: String? = null,
+    /** Repeatable row groups (e.g. the LoRA stack) of the loaded local workflow. */
+    val dynamicGroups: List<DynamicGroup> = emptyList(),
 ) {
     val filteredPresets: List<PromptPreset>
         get() {
@@ -263,10 +266,15 @@ class GenerateViewModel(
         _linkedShot.value = null
         storyboardReferenceValuesAtLoad.clear()
         failedMappedFieldKeys.clear()
-        _state.update { it.copy(loading = true, error = null, draft = null, insight = null, uploads = emptyMap()) }
+        _state.update {
+            it.copy(loading = true, error = null, draft = null, insight = null, uploads = emptyMap(),
+                dynamicGroups = emptyList())
+        }
         viewModelScope.launch {
             runCatching { buildDraft(path, name) }
-                .onSuccess { (baseDraft, conv) ->
+                .onSuccess { built ->
+                    var baseDraft = built.first
+                    var conv = built.second
                     if (generation != workflowLoadGeneration) return@onSuccess
                     converted = conv
                     val queued = container.draftTransferRepository.consume(path)
@@ -316,6 +324,10 @@ class GenerateViewModel(
                         else -> null
                     }
                     val values = (mapped?.values ?: transfer?.values ?: remembered?.values.orEmpty()).toMutableMap()
+                    // Rows added on the phone are not part of the saved workflow; rebuild them.
+                    conv = WorkflowConverter.restoreGroupRows(conv, values)
+                    converted = conv
+                    baseDraft = baseDraft.copy(fields = conv.fields)
                     if (storyboard) values.keys.retainAll(baseDraft.fields.mapTo(hashSetOf(), PromptField::key))
                     transfer?.studioPrompt?.let { prompt ->
                         val textFields = baseDraft.fields.filter { it.kind == FieldKind.TEXT && !it.looksLikeNegativePrompt() }
@@ -342,6 +354,7 @@ class GenerateViewModel(
                                 else container.appSettingsStore.settings.value.defaultBatchCount,
                             storyboardShot = storyboard,
                             message = reuseMessage,
+                            dynamicGroups = conv.dynamicGroups.values.toList(),
                         )
                     }
                     val exactFields = transfer?.referenceFieldPaths.orEmpty().toMutableMap()
@@ -525,13 +538,18 @@ class GenerateViewModel(
         val generation = workflowLoadGeneration
         container.objectInfoCache.invalidate()
         viewModelScope.launch {
-            runCatching { buildDraft(draft.workflowPath, draft.workflowName) }.onSuccess { (fresh, updated) ->
+            runCatching { buildDraft(draft.workflowPath, draft.workflowName) }.onSuccess { (fresh, reloaded) ->
                 val current = _state.value.draft
                 if (generation != workflowLoadGeneration || current?.workflowPath != draft.workflowPath) return@onSuccess
+                // Rows added on the phone live in the draft values, not in the saved workflow.
+                val updated = WorkflowConverter.restoreGroupRows(reloaded, current.values)
                 converted = updated
-                val keys = fresh.fields.mapTo(hashSetOf(), PromptField::key)
-                val merged = fresh.copy(values = current.values.filterKeys { it in keys }, randomSeed = current.randomSeed)
+                val keys = updated.fields.mapTo(hashSetOf(), PromptField::key) +
+                    updated.dynamicGroups.values.mapTo(hashSetOf()) { WorkflowConverter.groupRowsKey(it.key) }
+                val merged = fresh.copy(fields = updated.fields,
+                    values = current.values.filterKeys { it in keys }, randomSeed = current.randomSeed)
                 _state.update { it.copy(draft = merged, insight = insightFor(merged, updated),
+                    dynamicGroups = updated.dynamicGroups.values.toList(),
                     message = AppStrings.get(R.string.gen_definition_refreshed)) }
             }.onFailure { error ->
                 if (generation == workflowLoadGeneration) {
@@ -541,6 +559,33 @@ class GenerateViewModel(
         }
     }
     fun toggleRandomSeed() = updateDraft { it.copy(randomSeed = !it.randomSeed) }
+
+    /** Adds one more row (e.g. another LoRA) to a repeatable group of the loaded workflow. */
+    fun addGroupRow(groupKey: String) = resizeGroup(groupKey, +1)
+
+    /** Removes the last row the user added; rows saved in the workflow are kept. */
+    fun removeGroupRow(groupKey: String) {
+        val group = converted?.dynamicGroups?.get(groupKey) ?: return
+        if (group.addedRows > 0) resizeGroup(groupKey, -1)
+    }
+
+    private fun resizeGroup(groupKey: String, delta: Int) {
+        val current = converted ?: return
+        val rows = current.dynamicGroups[groupKey]?.rows?.plus(delta) ?: return
+        val updated = WorkflowConverter.withGroupRows(current, groupKey, rows)
+        if (updated === current) return
+        converted = updated
+        val resized = updated.dynamicGroups.getValue(groupKey)
+        val keys = updated.fields.mapTo(hashSetOf(), PromptField::key)
+        updateDraft { draft ->
+            val values = draft.values.filterKeys { it in keys }.toMutableMap()
+            // Only rows beyond the saved workflow need remembering across restarts.
+            val countKey = WorkflowConverter.groupRowsKey(groupKey)
+            if (resized.addedRows > 0) values[countKey] = resized.rows.toString() else values.remove(countKey)
+            draft.copy(fields = updated.fields, values = values)
+        }
+        _state.update { it.copy(dynamicGroups = updated.dynamicGroups.values.toList()) }
+    }
     fun setPresetQuery(value: String) = _state.update { it.copy(presetQuery = value) }
     fun setBatchCount(value: Int) {
         if (_state.value.storyboardShot) return
@@ -556,8 +601,15 @@ class GenerateViewModel(
             draft.workflowPath,
             draft.storageServerUrl.ifBlank { container.serverSession.url },
         )
+        var reset = converted ?: return
+        reset.dynamicGroups.values.filter { it.addedRows > 0 }.forEach { group ->
+            reset = WorkflowConverter.withGroupRows(reset, group.key, group.savedRows)
+        }
+        converted = reset
+        _state.update { it.copy(dynamicGroups = reset.dynamicGroups.values.toList()) }
         updateDraft {
             it.copy(
+                fields = reset.fields,
                 values = emptyMap(),
                 randomSeed = container.appSettingsStore.settings.value.defaultRandomSeed,
             )

@@ -46,6 +46,12 @@
     <string name="gen_refresh_definition">Refresh workflow definition</string>
     <string name="gen_definition_refreshed">Workflow definition refreshed</string>
     <string name="gen_model_parameters">Models and sampling</string>
+    <plurals name="gen_group_rows">
+        <item quantity="one">%1$s stack · %2$d row</item>
+        <item quantity="other">%1$s stack · %2$d rows</item>
+    </plurals>
+    <string name="gen_group_add_row">Add row</string>
+    <string name="gen_group_remove_row">Remove row</string>
     <string name="gen_image_preview_unavailable">Could not preview %1$s. Tap the slot to replace it.</string>
     <string name="gen_repick_image">Replace</string>
     <string name="gen_image_missing">%1$s needs a replacement. %2$s is missing on the ComfyUI server.</string>

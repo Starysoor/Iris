@@ -379,6 +379,9 @@ fun GenerateScreen(
                             groupModelControls = !draft.isCloud,
                             onToggle = { advancedOpen = !advancedOpen },
                             onChange = viewModel::updateValue,
+                            rowGroups = state.dynamicGroups,
+                            onAddRow = { viewModel.addGroupRow(it.key) },
+                            onRemoveRow = { viewModel.removeGroupRow(it.key) },
                         )
                     }
 
