@@ -110,6 +110,16 @@ jobs:
           )
           test -s "$ARTIFACT_DIR/Iris-${RELEASE_TAG}.apk.sha256"
 
+      - name: Preserve signed release assets
+        uses: actions/upload-artifact@v4
+        with:
+          name: iris-${{ env.RELEASE_TAG }}-signed
+          path: |
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk
+            app/build/outputs/apk/release/Iris-${{ env.RELEASE_TAG }}.apk.sha256
+          if-no-files-found: error
+          retention-days: 7
+
       - name: Create GitHub Release
         uses: softprops/action-gh-release@v2
         with:
